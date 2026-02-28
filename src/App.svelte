@@ -3,6 +3,7 @@
   import QuantityInput from './lib/QuantityInput.svelte';
   import UnitSelect from './lib/UnitSelect.svelte';
   import { getUnitByValue } from './lib/units.js';
+  import { calculateIngredientCost, getUnitCategory, calculateContainerCost } from './lib/priceCalculator.js';
 
   // Estado de la aplicación
   let currentScreen = 'home'; // 'home', 'create', 'ingredients', 'recipes'
@@ -14,7 +15,70 @@
   
   // Formularios
   let newRecipeName = '';
-  let newIngredient = { name: '', quantity: '', unit: '', price: 0 };
+  let newIngredient = { 
+    name: '', 
+    quantity: '', 
+    unit: '', 
+    pricePerKgOrL: 0,
+    // New container fields
+    containerQuantity: '',
+    containerUnit: '',
+    containerPrice: 0
+  };
+
+  function getIngredientDisplayPrice(ingredient) {
+    // Check if ingredient has container data (new format)
+    if (ingredient.containerQuantity && ingredient.containerUnit && ingredient.containerPrice) {
+      // Calculate using container-based pricing
+      return calculateContainerCost(
+        ingredient.quantity,
+        ingredient.unit,
+        ingredient.containerQuantity,
+        ingredient.containerUnit,
+        ingredient.containerPrice
+      ).toFixed(2);
+    }
+    
+    // Legacy calculation for existing recipes without container data
+    const category = getUnitCategory(ingredient.unit);
+    if (category === 'piece') {
+      // For piece units, show direct price
+      return (parseFloat(ingredient.price) || parseFloat(ingredient.pricePerKgOrL) || 0).toFixed(2);
+    } else {
+      // For weight/volume, show calculated cost
+      const pricePerKgOrL = parseFloat(ingredient.pricePerKgOrL) || parseFloat(ingredient.price) || 0;
+      return calculateIngredientCost(ingredient, pricePerKgOrL).toFixed(2);
+    }
+  }
+  $: priceLabel = getPriceLabel(newIngredient.unit);
+  
+  // Auto-fill container unit when recipe unit changes
+  $: {
+    if (newIngredient.unit && !newIngredient.containerUnit) {
+      newIngredient.containerUnit = newIngredient.unit;
+    } else if (!newIngredient.unit && newIngredient.containerUnit) {
+      // Clear container unit when recipe unit is cleared
+      newIngredient.containerUnit = '';
+    }
+  }
+  
+  // Helper to display container info
+  function getContainerDisplay(ingredient) {
+    if (!ingredient.containerQuantity || !ingredient.containerUnit) return '';
+    const unitLabel = getUnitByValue(ingredient.containerUnit)?.label || ingredient.containerUnit;
+    return ` (env: ${ingredient.containerQuantity} ${unitLabel})`;
+  }
+
+  function getPriceLabel(unit) {
+    const category = getUnitCategory(unit);
+    if (category === 'weight') {
+      return 'Precio por kg ($)';
+    } else if (category === 'volume') {
+      return 'Precio por L ($)';
+    } else {
+      return 'Precio ($)';
+    }
+  }
 
   // Cargar recetas desde localStorage al iniciar
   onMount(() => {
@@ -126,12 +190,39 @@
     // Validate unit is a valid unit value
     const validUnit = newIngredient.unit && getUnitByValue(newIngredient.unit);
     
+    // Validate container fields: if any container field is filled, all should be filled
+    const hasContainerData = newIngredient.containerQuantity || newIngredient.containerUnit || newIngredient.containerPrice;
+    const hasPartialContainer = (newIngredient.containerQuantity && !newIngredient.containerUnit) ||
+                                 (newIngredient.containerQuantity && !newIngredient.containerPrice) ||
+                                 (newIngredient.containerUnit && !newIngredient.containerQuantity) ||
+                                 (newIngredient.containerPrice && !newIngredient.containerQuantity);
+    
+    if (hasPartialContainer) {
+      alert('Si ingresa datos del contenedor, complete todos los campos: cantidad, unidad y precio.');
+      return;
+    }
+    
+    // Validate unit category compatibility if both recipe and container units are provided
+    if (validUnit && newIngredient.containerUnit) {
+      const recipeCategory = getUnitCategory(newIngredient.unit);
+      const containerCategory = getUnitCategory(newIngredient.containerUnit);
+      if (recipeCategory !== 'piece' && containerCategory !== 'piece' && recipeCategory !== containerCategory) {
+        alert(`Advertencia: La unidad de receta (${recipeCategory}) es diferente a la del contenedor (${containerCategory}). Esto puede generar cálculos incorrectos.`);
+      }
+    }
+    
     const ingredient = {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       name: newIngredient.name.trim(),
       quantity: newIngredient.quantity.trim(),
       unit: validUnit ? newIngredient.unit : '',
-      price: Math.max(0, parseFloat(String(newIngredient.price)) || 0)
+      pricePerKgOrL: Math.max(0, parseFloat(String(newIngredient.pricePerKgOrL)) || 0),
+      // Legacy price field - keep for backward compatibility with existing recipes
+      price: Math.max(0, parseFloat(String(newIngredient.pricePerKgOrL)) || 0),
+      // New container fields
+      containerQuantity: newIngredient.containerQuantity ? newIngredient.containerQuantity.trim() : '',
+      containerUnit: newIngredient.containerUnit || '',
+      containerPrice: Math.max(0, parseFloat(String(newIngredient.containerPrice)) || 0)
     };
     
     recipes[recipeIndex].ingredients = [
@@ -139,7 +230,15 @@
       ingredient
     ];
     currentRecipe = recipes[recipeIndex];
-    newIngredient = { name: '', quantity: '', unit: '', price: 0 };
+    newIngredient = { 
+      name: '', 
+      quantity: '', 
+      unit: '', 
+      pricePerKgOrL: 0,
+      containerQuantity: '',
+      containerUnit: '',
+      containerPrice: 0
+    };
     saveRecipes();
   }
 
@@ -173,7 +272,36 @@
 
   // Calcular total de ingredientes
   function getTotal(ingredients) {
-    return ingredients.reduce((sum, ing) => sum + (parseFloat(ing.price) || 0), 0);
+    return ingredients.reduce((sum, ing) => {
+      // Check for container data first (new format)
+      if (ing.containerQuantity && ing.containerUnit && ing.containerPrice) {
+        // Calculate using container-based pricing
+        const cost = calculateContainerCost(
+          ing.quantity,
+          ing.unit,
+          ing.containerQuantity,
+          ing.containerUnit,
+          ing.containerPrice
+        );
+        return sum + cost;
+      }
+      
+      // Legacy calculation for existing recipes without container data
+      const category = getUnitCategory(ing.unit);
+      
+      // For piece units (pza, und, doc), use price directly
+      // For weight/volume units, calculate cost using pricePerKgOrL
+      if (category === 'piece') {
+        // Use legacy price field or pricePerKgOrL as direct price for piece units
+        const price = parseFloat(ing.price) || parseFloat(ing.pricePerKgOrL) || 0;
+        return sum + price;
+      } else {
+        // For weight/volume: calculate cost dynamically
+        const pricePerKgOrL = parseFloat(ing.pricePerKgOrL) || parseFloat(ing.price) || 0;
+        const cost = calculateIngredientCost(ing, pricePerKgOrL);
+        return sum + cost;
+      }
+    }, 0);
   }
 
   // Formatear fecha
@@ -290,23 +418,38 @@
             />
           </div>
         </div>
-        <div class="form-row form-row-secondary">
-          <div class="input-group price-group">
-            <label class="input-label" for="ingredient-price">Precio ($)</label>
+        
+        <!-- Presentación en el Supermercado -->
+        <div class="form-row form-row-container">
+          <div class="input-group container-qty-group">
+            <QuantityInput bind:value={newIngredient.containerQuantity} label="Contenedor" showFractions={false} />
+          </div>
+          <div class="input-group container-unit-group">
+            <UnitSelect 
+              bind:value={newIngredient.containerUnit} 
+              label="Unidad"
+              defaultValue={newIngredient.unit}
+              onlyCommercial={true}
+            />
+          </div>
+          <div class="input-group container-price-group">
+            <label class="input-label" for="container-price">Precio ($)</label>
             <input 
-              id="ingredient-price"
+              id="container-price"
               type="number" 
-              bind:value={newIngredient.price} 
+              bind:value={newIngredient.containerPrice} 
               placeholder="0.00"
               step="0.01"
               min="0"
               class="price-input"
             />
           </div>
-          <button type="submit" class="add-btn" class:disabled={!newIngredient.name.trim()}>
-            +
-          </button>
         </div>
+        
+        
+        <button type="submit" class="add-btn add-btn-full" class:disabled={!newIngredient.name.trim()}>
+          Agregar Ingrediente
+        </button>
       </form>
 
       <!-- Lista de ingredientes -->
@@ -317,10 +460,13 @@
               <span class="ingredient-name">{ingredient.name}</span>
               <span class="ingredient-quantity">
                 {ingredient.quantity || '—'}{ingredient.unit ? ` ${getUnitByValue(ingredient.unit)?.label || ingredient.unit}` : ''}
+                {#if ingredient.containerQuantity && ingredient.containerUnit}
+                  <span class="container-info"> / {ingredient.containerQuantity} {getUnitByValue(ingredient.containerUnit)?.label || ingredient.containerUnit}</span>
+                {/if}
               </span>
             </div>
             <div class="ingredient-right">
-              <span class="ingredient-price">${(parseFloat(ingredient.price) || 0).toFixed(2)}</span>
+              <span class="ingredient-price">${getIngredientDisplayPrice(ingredient)}</span>
               <button class="remove-btn" onclick={() => removeIngredient(ingredient.id)}>×</button>
             </div>
           </div>
@@ -673,15 +819,50 @@
 
   .form-row-main {
     display: grid;
-    grid-template-columns: 1fr 0.8fr 1.5fr;
+    grid-template-columns: 1fr 1fr 1fr;
     gap: 8px;
     align-items: start;
   }
-
-  .form-row-secondary {
-    display: flex;
-    gap: 10px;
-    align-items: end;
+  
+  /* Container section styles */
+  .form-row-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--color-border);
+  }
+  
+  .container-qty-group,
+  .container-unit-group,
+  .container-price-group {
+    min-width: 0;
+  }
+  
+  /* Full width submit button - use high specificity to override .add-btn */
+  .ingredient-form .add-btn-full, .add-btn-full {
+    display: block !important;
+    width: 100% !important;
+    height: 56px;
+    margin-top: 12px;
+    font-size: 1rem;
+    font-weight: 600;
+    background: var(--color-primary);
+    color: var(--color-primary-foreground);
+    border: none;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+  
+  .add-btn-full:hover:not(.disabled) {
+    opacity: 0.9;
+  }
+  
+  .add-btn-full.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .input-group {
@@ -709,10 +890,6 @@
   .name-group {
     flex: 1;
     min-width: 0;
-  }
-
-  .price-group {
-    flex: 1;
   }
 
   .name-input, .price-input {
@@ -793,6 +970,11 @@
   .ingredient-quantity {
     font-size: 0.85rem;
     color: var(--color-muted-foreground);
+  }
+
+  .container-info {
+    font-size: 0.75rem;
+    color: var(--color-muted);
   }
 
   .ingredient-right {
@@ -948,18 +1130,13 @@
     .name-group {
       grid-column: 1 / -1;
     }
-
-    .form-row-secondary {
-      flex-direction: column;
+    
+    .form-row-container {
+      grid-template-columns: 1fr 1fr;
     }
-
-    .price-group {
-      width: 100%;
-    }
-
-    .ingredient-form .add-btn {
-      width: 100%;
-      height: 56px;
+    
+    .container-price-group {
+      grid-column: 1 / -1;
     }
   }
 </style>

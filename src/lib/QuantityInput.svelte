@@ -1,7 +1,7 @@
 <script>
   import { fractionButtons, generateId } from './units.js';
   
-  let { value = $bindable(''), label = 'Cantidad' } = $props();
+  let { value = $bindable(''), label = 'Cantidad', showFractions = true } = $props();
   
   // Generate unique ID for accessibility
   const inputId = generateId('qty-input');
@@ -39,18 +39,20 @@
     oninput={handleInput}
   />
   
-  <div class="fraction-buttons">
-    {#each fractionButtons as frac}
-      <button
-        type="button"
-        class="frac-btn"
-        aria-label="Agregar {frac.display}"
-        onclick={() => insertFraction(frac.value)}
-      >
-        {frac.display}
-      </button>
-    {/each}
-  </div>
+  {#if showFractions}
+    <div class="fraction-buttons">
+      {#each fractionButtons as frac}
+        <button
+          type="button"
+          class="frac-btn"
+          aria-label="Agregar {frac.display}"
+          onclick={() => insertFraction(frac.value)}
+        >
+          {frac.display}
+        </button>
+      {/each}
+    </div>
+  {/if}
 </div>
 
 <style>

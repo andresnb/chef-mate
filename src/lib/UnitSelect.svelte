@@ -1,17 +1,27 @@
 <script>
-  import { unitCategories, generateId } from './units.js';
+  import { unitCategories, generateId, commercialUnits } from './units.js';
   
-  let { value = $bindable(''), label = 'Unidad' } = $props();
+  let { value = $bindable(''), label = 'Unidad', defaultValue = '', onlyCommercial = false } = $props();
   
   // Generate unique ID for accessibility
   const selectId = generateId('unit-select');
+  
+  // Use commercial units if onlyCommercial is true
+  const displayedUnits = $derived(onlyCommercial ? commercialUnits : unitCategories);
+  
+  // Set default value when defaultValue prop changes and value is empty
+  $effect(() => {
+    if (defaultValue && !value) {
+      value = defaultValue;
+    }
+  });
 </script>
 
 <div class="unit-select-wrapper">
   <label class="unit-label" for={selectId}>{label}</label>
   <select id={selectId} bind:value class="unit-select" aria-label="Seleccionar unidad">
     <option value="" disabled>--</option>
-    {#each unitCategories as category}
+    {#each displayedUnits as category}
       <optgroup label={category.name}>
         {#each category.units as unit}
           <option value={unit.value}>{unit.label}</option>
