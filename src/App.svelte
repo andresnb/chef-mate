@@ -6,12 +6,52 @@
   let recipes = [];
   let currentRecipe = null;
   
+  // Estado del modo oscuro
+  let isDarkMode = false;
+  
   // Formularios
   let newRecipeName = '';
   let newIngredient = { name: '', quantity: '', price: 0 };
 
   // Cargar recetas desde localStorage al iniciar
   onMount(() => {
+    // Cargar preferencia de modo oscuro
+    try {
+      const savedDarkMode = localStorage.getItem('chefmate-dark-mode');
+      if (savedDarkMode === 'true') {
+        isDarkMode = true;
+        document.documentElement.classList.add('dark');
+      } else if (savedDarkMode === null) {
+        // Si no hay preferencia, usar la del sistema
+        if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+          isDarkMode = true;
+          document.documentElement.classList.add('dark');
+        }
+      }
+    } catch (e) {
+      // Si localStorage no está disponible, usar modo claro
+      console.warn('localStorage not available:', e);
+    }
+
+    // Escuchar cambios en la preferencia del sistema
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleSystemThemeChange = (e) => {
+      // Solo actualizar si el usuario no tiene preferencia guardada
+      try {
+        if (localStorage.getItem('chefmate-dark-mode') === null) {
+          isDarkMode = e.matches;
+          document.documentElement.classList.toggle('dark', isDarkMode);
+        }
+      } catch (err) {
+        // Ignorar errores si localStorage no está disponible
+      }
+    };
+    mediaQuery.addEventListener('change', handleSystemThemeChange);
+    
+    return () => {
+      mediaQuery.removeEventListener('change', handleSystemThemeChange);
+    };
+    
     const saved = localStorage.getItem('chefmate-recipes');
     if (saved) {
       try {
@@ -31,6 +71,21 @@
   // Guardar recetas en localStorage
   function saveRecipes() {
     localStorage.setItem('chefmate-recipes', JSON.stringify(recipes));
+  }
+
+  // Toggle modo oscuro
+  function toggleDarkMode() {
+    isDarkMode = !isDarkMode;
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    try {
+      localStorage.setItem('chefmate-dark-mode', isDarkMode ? 'true' : 'false');
+    } catch (e) {
+      // Silently fail in private browsing mode
+    }
   }
 
   // Navegación
@@ -134,13 +189,9 @@
         </button>
       {/if}
       <h1>🍰 ChefMate</h1>
-      {#if currentScreen === 'home'}
-        <button class="menu-btn" onclick={() => goTo('recipes')}>
-          📋
-        </button>
-      {:else}
-        <div style="width: 40px;"></div>
-      {/if}
+      <button class="theme-toggle" onclick={toggleDarkMode} aria-label="Toggle dark mode">
+        {isDarkMode ? '☀️' : '🌙'}
+      </button>
     </div>
   </header>
 
@@ -320,9 +371,10 @@
     margin: 0;
     padding: 0;
     font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-    background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(180deg, var(--color-primary) 0%, var(--color-secondary) 100%);
     min-height: 100vh;
-    color: #333;
+    color: var(--color-foreground);
+    transition: background 0.3s ease;
   }
 
   main {
@@ -335,7 +387,7 @@
 
   /* Header */
   header {
-    background: rgba(255,255,255,0.95);
+    background: var(--color-card);
     backdrop-filter: blur(10px);
     padding: 16px 20px;
     position: sticky;
@@ -355,14 +407,14 @@
   header h1 {
     font-size: 1.4rem;
     margin: 0;
-    color: #333;
+    color: var(--color-foreground);
   }
 
-  .back-btn, .menu-btn {
+  .back-btn, .theme-toggle {
     width: 40px;
     height: 40px;
     border: none;
-    background: #f0f0f0;
+    background: var(--color-muted);
     border-radius: 12px;
     font-size: 1.2rem;
     cursor: pointer;
@@ -372,9 +424,18 @@
     transition: transform 0.2s, background 0.2s;
   }
 
-  .back-btn:active, .menu-btn:active {
+  .theme-toggle {
+    font-size: 1.1rem;
+  }
+
+  .theme-toggle:focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+
+  .back-btn:active, .theme-toggle:active {
     transform: scale(0.95);
-    background: #e0e0e0;
+    background: var(--color-border);
   }
 
   /* Screens */
@@ -435,13 +496,14 @@
     align-items: center;
     gap: 16px;
     padding: 20px;
-    background: white;
+    background: var(--color-card);
     border: none;
     border-radius: 16px;
     cursor: pointer;
     text-align: left;
     box-shadow: 0 4px 12px rgba(0,0,0,0.1);
     transition: transform 0.2s, box-shadow 0.2s;
+    color: var(--color-foreground);
   }
 
   .action-card:active {
@@ -450,8 +512,8 @@
   }
 
   .action-card.primary {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
+    background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
+    color: var(--color-primary-foreground);
   }
 
   .card-icon {
@@ -489,10 +551,11 @@
   }
 
   .create-form {
-    background: white;
+    background: var(--color-card);
     padding: 24px;
     border-radius: 16px;
     box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    color: var(--color-foreground);
   }
 
   .input-group {
@@ -503,28 +566,34 @@
     display: block;
     font-weight: 600;
     margin-bottom: 8px;
-    color: #333;
+    color: var(--color-foreground);
   }
 
   input {
     width: 100%;
     padding: 14px 16px;
-    border: 2px solid #e0e0e0;
+    border: 2px solid var(--color-input);
     border-radius: 12px;
     font-size: 1rem;
+    background: var(--color-background);
+    color: var(--color-foreground);
     transition: border-color 0.2s;
   }
 
   input:focus {
     outline: none;
-    border-color: #667eea;
+    border-color: var(--color-ring);
+  }
+
+  input::placeholder {
+    color: var(--color-muted-foreground);
   }
 
   .submit-btn {
     width: 100%;
     padding: 16px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
+    background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
+    color: var(--color-primary-foreground);
     border: none;
     border-radius: 12px;
     font-size: 1rem;
@@ -560,15 +629,15 @@
     width: 40px;
     height: 40px;
     border: none;
-    background: rgba(255,255,255,0.2);
+    background: var(--color-destructive);
     border-radius: 10px;
     font-size: 1.1rem;
     cursor: pointer;
-    color: white;
+    color: var(--color-destructive-foreground);
   }
 
   .ingredient-form {
-    background: white;
+    background: var(--color-card);
     padding: 16px;
     border-radius: 16px;
     margin-bottom: 20px;
@@ -592,8 +661,8 @@
   .add-btn {
     width: 50px;
     height: 50px;
-    background: #667eea;
-    color: white;
+    background: var(--color-primary);
+    color: var(--color-primary-foreground);
     border: none;
     border-radius: 12px;
     font-size: 1.5rem;
@@ -624,7 +693,7 @@
     justify-content: space-between;
     align-items: center;
     padding: 14px 16px;
-    background: white;
+    background: var(--color-card);
     border-radius: 12px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.05);
     animation: fadeIn 0.3s ease;
@@ -643,12 +712,12 @@
 
   .ingredient-name {
     font-weight: 600;
-    color: #333;
+    color: var(--color-foreground);
   }
 
   .ingredient-quantity {
     font-size: 0.85rem;
-    color: #888;
+    color: var(--color-muted-foreground);
   }
 
   .ingredient-right {
@@ -659,15 +728,15 @@
 
   .ingredient-price {
     font-weight: 700;
-    color: #4caf50;
+    color: var(--color-primary);
     font-size: 1.1rem;
   }
 
   .remove-btn {
     width: 32px;
     height: 32px;
-    background: #ff5252;
-    color: white;
+    background: var(--color-destructive);
+    color: var(--color-destructive-foreground);
     border: none;
     border-radius: 8px;
     font-size: 1.1rem;
@@ -684,16 +753,17 @@
     justify-content: space-between;
     align-items: center;
     padding: 20px;
-    background: white;
+    background: var(--color-card);
     border-radius: 16px;
     box-shadow: 0 4px 20px rgba(0,0,0,0.15);
     font-size: 1.1rem;
     font-weight: 600;
+    color: var(--color-foreground);
   }
 
   .total-amount {
     font-size: 1.5rem;
-    color: #4caf50;
+    color: var(--color-primary);
   }
 
   /* Recipes Screen */
@@ -708,7 +778,7 @@
     justify-content: space-between;
     align-items: center;
     padding: 18px 20px;
-    background: white;
+    background: var(--color-card);
     border: none;
     border-radius: 14px;
     cursor: pointer;
@@ -730,18 +800,18 @@
   .recipe-name {
     font-weight: 600;
     font-size: 1.05rem;
-    color: #333;
+    color: var(--color-foreground);
   }
 
   .recipe-meta {
     font-size: 0.8rem;
-    color: #888;
+    color: var(--color-muted-foreground);
   }
 
   .recipe-total {
     font-weight: 700;
     font-size: 1.2rem;
-    color: #4caf50;
+    color: var(--color-primary);
   }
 
   /* Empty State */
