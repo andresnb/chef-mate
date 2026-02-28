@@ -1,5 +1,8 @@
 <script>
   import { onMount } from 'svelte';
+  import QuantityInput from './lib/QuantityInput.svelte';
+  import UnitSelect from './lib/UnitSelect.svelte';
+  import { getUnitByValue } from './lib/units.js';
 
   // Estado de la aplicación
   let currentScreen = 'home'; // 'home', 'create', 'ingredients', 'recipes'
@@ -11,7 +14,7 @@
   
   // Formularios
   let newRecipeName = '';
-  let newIngredient = { name: '', quantity: '', price: 0 };
+  let newIngredient = { name: '', quantity: '', unit: '', price: 0 };
 
   // Cargar recetas desde localStorage al iniciar
   onMount(() => {
@@ -120,10 +123,14 @@
     const recipeIndex = recipes.findIndex(r => r.id === currentRecipe.id);
     if (recipeIndex === -1) return;
     
+    // Validate unit is a valid unit value
+    const validUnit = newIngredient.unit && getUnitByValue(newIngredient.unit);
+    
     const ingredient = {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       name: newIngredient.name.trim(),
       quantity: newIngredient.quantity.trim(),
+      unit: validUnit ? newIngredient.unit : '',
       price: Math.max(0, parseFloat(String(newIngredient.price)) || 0)
     };
     
@@ -132,7 +139,7 @@
       ingredient
     ];
     currentRecipe = recipes[recipeIndex];
-    newIngredient = { name: '', quantity: '', price: 0 };
+    newIngredient = { name: '', quantity: '', unit: '', price: 0 };
     saveRecipes();
   }
 
@@ -265,29 +272,37 @@
       
       <!-- Formulario agregar ingrediente -->
       <form class="ingredient-form" onsubmit={(e) => { e.preventDefault(); addIngredient(); }}>
-        <div class="form-row">
-          <input 
-            type="text" 
-            bind:value={newIngredient.name} 
-            placeholder="Ingrediente"
-            class="name-input"
-          />
-          <input 
-            type="text" 
-            bind:value={newIngredient.quantity} 
-            placeholder="Cantidad"
-            class="qty-input"
-          />
+        <div class="form-row form-row-main">
+          <div class="input-group qty-group">
+            <QuantityInput bind:value={newIngredient.quantity} label="Cant." />
+          </div>
+          <div class="input-group unit-group">
+            <UnitSelect bind:value={newIngredient.unit} label="Unidad" />
+          </div>
+          <div class="input-group name-group">
+            <label class="input-label" for="ingredient-name">Ingrediente</label>
+            <input 
+              id="ingredient-name"
+              type="text" 
+              bind:value={newIngredient.name} 
+              placeholder="Nombre"
+              class="name-input"
+            />
+          </div>
         </div>
-        <div class="form-row">
-          <input 
-            type="number" 
-            bind:value={newIngredient.price} 
-            placeholder="Precio ($)"
-            step="0.01"
-            min="0"
-            class="price-input"
-          />
+        <div class="form-row form-row-secondary">
+          <div class="input-group price-group">
+            <label class="input-label" for="ingredient-price">Precio ($)</label>
+            <input 
+              id="ingredient-price"
+              type="number" 
+              bind:value={newIngredient.price} 
+              placeholder="0.00"
+              step="0.01"
+              min="0"
+              class="price-input"
+            />
+          </div>
           <button type="submit" class="add-btn" class:disabled={!newIngredient.name.trim()}>
             +
           </button>
@@ -300,7 +315,9 @@
           <div class="ingredient-item">
             <div class="ingredient-info">
               <span class="ingredient-name">{ingredient.name}</span>
-              <span class="ingredient-quantity">{ingredient.quantity || '—'}</span>
+              <span class="ingredient-quantity">
+                {ingredient.quantity || '—'}{ingredient.unit ? ` ${getUnitByValue(ingredient.unit)?.label || ingredient.unit}` : ''}
+              </span>
             </div>
             <div class="ingredient-right">
               <span class="ingredient-price">${(parseFloat(ingredient.price) || 0).toFixed(2)}</span>
@@ -654,21 +671,79 @@
     margin-bottom: 0;
   }
 
-  .name-input { flex: 2; }
-  .qty-input { flex: 1; }
-  .price-input { flex: 1; }
+  .form-row-main {
+    display: grid;
+    grid-template-columns: 1fr 0.8fr 1.5fr;
+    gap: 8px;
+    align-items: start;
+  }
+
+  .form-row-secondary {
+    display: flex;
+    gap: 10px;
+    align-items: end;
+  }
+
+  .input-group {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .input-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-muted-foreground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+
+  .qty-group {
+    min-width: 0;
+  }
+
+  .unit-group {
+    min-width: 0;
+  }
+
+  .name-group {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .price-group {
+    flex: 1;
+  }
+
+  .name-input, .price-input {
+    width: 100%;
+    height: 48px;
+    padding: 0 14px;
+    font-size: 1rem;
+    border: 2px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-card);
+    color: var(--color-foreground);
+  }
+
+  .name-input:focus, .price-input:focus {
+    outline: none;
+    border-color: var(--color-ring);
+    box-shadow: 0 0 0 3px rgba(229, 123, 132, 0.25);
+  }
 
   .add-btn {
-    width: 50px;
-    height: 50px;
+    width: 56px;
+    height: 48px;
     background: var(--color-primary);
     color: var(--color-primary-foreground);
     border: none;
     border-radius: 12px;
-    font-size: 1.5rem;
+    font-size: 1.8rem;
     font-weight: bold;
     cursor: pointer;
     transition: background 0.2s, transform 0.2s;
+    flex-shrink: 0;
   }
 
   .add-btn:active {
@@ -866,16 +941,25 @@
       padding: 16px;
     }
 
-    .form-row {
-      flex-wrap: wrap;
+    .form-row-main {
+      grid-template-columns: 1fr 1fr;
     }
 
-    .name-input, .qty-input, .price-input {
-      flex: 1 1 100%;
+    .name-group {
+      grid-column: 1 / -1;
+    }
+
+    .form-row-secondary {
+      flex-direction: column;
+    }
+
+    .price-group {
+      width: 100%;
     }
 
     .ingredient-form .add-btn {
       width: 100%;
+      height: 56px;
     }
   }
 </style>
