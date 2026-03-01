@@ -181,6 +181,7 @@ El tema oscuro se maneja mediante:
 ## Planos Futuros (Véase /plans)
 
 - [Container Fields Plan](../plans/container-fields-plan.md) - Implementado
+- [Labor Cost Plan](./labor-cost-plan.md) - Próximo
 - Migración a TypeScript
 - Export/Import de recetas
 - Soporte multi-moneda

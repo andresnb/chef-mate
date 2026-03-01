@@ -6,16 +6,32 @@
   import { calculateIngredientCost, getUnitCategory, calculateContainerCost } from './lib/priceCalculator.js';
 
   // Estado de la aplicación
-  let currentScreen = 'home'; // 'home', 'create', 'ingredients', 'recipes'
-  let recipes = [];
-  let currentRecipe = null;
+  let currentScreen = $state('home'); // 'home', 'create', 'ingredients', 'recipes'
+  let recipes = $state([]);
+  /** @type {{id: string, name: string, prepTimeMinutes?: number, ingredients?: Array<any>, createdAt?: string} | null} */
+  let currentRecipe = $state(null);
   
   // Estado del modo oscuro
-  let isDarkMode = false;
+  let isDarkMode = $state(false);
+  
+  // Estado global: userSettings (Svelte 5 Runes)
+  let userSettings = $state({ hourlyRate: 0 });
+  
+  // Effect para persistir userSettings en localStorage
+  $effect(() => {
+    try {
+      localStorage.setItem('chefmate-user-settings', JSON.stringify(userSettings));
+    } catch (e) {
+      // Silently fail in private browsing mode
+    }
+  });
+  
+  // Mostrar/ocultar modal de settings
+  let showSettings = $state(false);
   
   // Formularios
-  let newRecipeName = '';
-  let newIngredient = { 
+  let newRecipeName = $state('');
+  let newIngredient = $state({ 
     name: '', 
     quantity: '', 
     unit: '', 
@@ -24,7 +40,7 @@
     containerQuantity: '',
     containerUnit: '',
     containerPrice: 0
-  };
+  });
 
   function getIngredientDisplayPrice(ingredient) {
     // Check if ingredient has container data (new format)
@@ -50,17 +66,17 @@
       return calculateIngredientCost(ingredient, pricePerKgOrL).toFixed(2);
     }
   }
-  $: priceLabel = getPriceLabel(newIngredient.unit);
+  let priceLabel = $derived(getPriceLabel(newIngredient.unit));
   
   // Auto-fill container unit when recipe unit changes
-  $: {
+  $effect(() => {
     if (newIngredient.unit && !newIngredient.containerUnit) {
       newIngredient.containerUnit = newIngredient.unit;
     } else if (!newIngredient.unit && newIngredient.containerUnit) {
       // Clear container unit when recipe unit is cleared
       newIngredient.containerUnit = '';
     }
-  }
+  });
   
   // Helper to display container info
   function getContainerDisplay(ingredient) {
@@ -133,6 +149,18 @@
         recipes = [];
       }
     }
+    
+    // Cargar userSettings desde localStorage
+    try {
+      const savedSettings = localStorage.getItem('chefmate-user-settings');
+      if (savedSettings) {
+        const parsed = JSON.parse(savedSettings);
+        userSettings.hourlyRate = parsed.hourlyRate || 0;
+      }
+    } catch (e) {
+      // Usar valores por defecto
+      userSettings.hourlyRate = 0;
+    }
   });
 
   // Guardar recetas en localStorage
@@ -167,6 +195,7 @@
     const recipe = {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       name: newRecipeName.trim(),
+      prepTimeMinutes: 0, // Tiempo de preparación en minutos
       ingredients: [],
       createdAt: new Date().toISOString()
     };
@@ -303,6 +332,20 @@
       }
     }, 0);
   }
+  
+  // Cálculos reactivos con $derived (Svelte 5 Runes)
+  // Total de ingredientes (maneja valores nulos)
+  let recipeIngredients = $derived((currentRecipe && currentRecipe.ingredients) || []);
+  let totalIngredientsCost = $derived(getTotal(recipeIngredients));
+  
+  // Costo de mano de obra: hourlyRate * (prepTimeMinutes / 60)
+  let recipePrepTime = $derived((currentRecipe && currentRecipe.prepTimeMinutes) || 0);
+  let laborCost = $derived(
+    ((userSettings.hourlyRate || 0) * (recipePrepTime / 60)) || 0
+  );
+  
+  // Costo total de la receta
+  let totalRecipeCost = $derived(totalIngredientsCost + laborCost);
 
   // Formatear fecha
   function formatDate(isoString) {
@@ -324,9 +367,14 @@
         </button>
       {/if}
       <h1>🍰 ChefMate</h1>
-      <button class="theme-toggle" onclick={toggleDarkMode} aria-label="Toggle dark mode">
-        {isDarkMode ? '☀️' : '🌙'}
-      </button>
+      <div class="header-actions">
+        <button class="theme-toggle" onclick={toggleDarkMode} aria-label="Toggle dark mode">
+          {isDarkMode ? '☀️' : '🌙'}
+        </button>
+        <button class="settings-toggle" onclick={() => showSettings = true} aria-label="Settings">
+          ⚙️
+        </button>
+      </div>
     </div>
   </header>
 
@@ -396,6 +444,22 @@
         <button class="delete-recipe-btn" onclick={() => { if (confirm('¿Estás seguro de eliminar esta receta?')) { deleteRecipe(currentRecipe.id); goTo('recipes'); } }}>
           🗑️
         </button>
+      </div>
+      
+      <!-- Tiempo de preparación -->
+      <div class="prep-time-section">
+        <label class="prep-time-label" for="prep-time">⏱️ Tiempo de preparación:</label>
+        <div class="prep-time-input-group">
+          <input 
+            id="prep-time"
+            type="number"
+            bind:value={currentRecipe.prepTimeMinutes}
+            placeholder="0"
+            min="0"
+            class="prep-time-input"
+          />
+          <span class="prep-time-unit">minutos</span>
+        </div>
       </div>
       
       <!-- Formulario agregar ingrediente -->
@@ -480,10 +544,23 @@
         {/if}
       </div>
 
-      <!-- Total -->
+      <!-- Total con desglose -->
       <div class="total-bar">
-        <span>Total de la receta:</span>
-        <span class="total-amount">${(getTotal(currentRecipe.ingredients) || 0).toFixed(2)}</span>
+        <div class="total-breakdown">
+          <div class="total-row">
+            <span>Costo Ingredientes:</span>
+            <span class="total-ingredients">${(totalIngredientsCost || 0).toFixed(2)}</span>
+          </div>
+          <div class="total-row labor-row">
+            <span>Mano de Obra:</span>
+            <span class="total-labor">${(laborCost || 0).toFixed(2)}</span>
+          </div>
+          <div class="total-divider"></div>
+          <div class="total-row total-final">
+            <span>Costo Total:</span>
+            <span class="total-amount">${(totalRecipeCost || 0).toFixed(2)}</span>
+          </div>
+        </div>
       </div>
     </section>
   {/if}
@@ -521,6 +598,48 @@
         {/if}
       </div>
     </section>
+  {/if}
+  
+  <!-- Modal de Settings -->
+  {#if showSettings}
+    <div 
+      class="modal-overlay" 
+      onclick={() => showSettings = false}
+      onkeydown={(e) => e.key === 'Escape' && (showSettings = false)}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="settings-title"
+      tabindex="-1"
+    >
+      <div class="modal-content" role="presentation" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
+        <div class="modal-header">
+          <h2 id="settings-title">⚙️ Ajustes</h2>
+          <button class="modal-close" onclick={() => showSettings = false}>×</button>
+        </div>
+        
+        <div class="settings-section">
+          <label class="settings-label" for="hourly-rate">
+            Valor de tu hora de trabajo ($)
+          </label>
+          <input 
+            id="hourly-rate"
+            type="number"
+            bind:value={userSettings.hourlyRate}
+            placeholder="0.00"
+            step="0.01"
+            min="0"
+            class="settings-input"
+          />
+          <small class="settings-hint">
+            Se usa para calcular el costo de mano de obra en tus recetas
+          </small>
+        </div>
+        
+        <button class="settings-save-btn" onclick={() => showSettings = false}>
+          Guardar
+        </button>
+      </div>
+    </div>
   {/if}
 </main>
 
@@ -573,7 +692,7 @@
     color: var(--color-foreground);
   }
 
-  .back-btn, .theme-toggle {
+  .back-btn, .theme-toggle, .settings-toggle {
     width: 40px;
     height: 40px;
     border: none;
@@ -585,6 +704,15 @@
     align-items: center;
     justify-content: center;
     transition: transform 0.2s, background 0.2s;
+  }
+  
+  .header-actions {
+    display: flex;
+    gap: 8px;
+  }
+  
+  .settings-toggle {
+    font-size: 1.1rem;
   }
 
   .theme-toggle {
@@ -798,6 +926,50 @@
     cursor: pointer;
     color: var(--color-destructive-foreground);
   }
+  
+  /* Tiempo de preparación */
+  .prep-time-section {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+    padding: 12px 16px;
+    background: var(--color-card);
+    border-radius: 12px;
+    color: var(--color-foreground);
+  }
+  
+  .prep-time-label {
+    font-weight: 600;
+    font-size: 0.95rem;
+  }
+  
+  .prep-time-input-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  
+  .prep-time-input {
+    width: 80px;
+    padding: 8px 12px;
+    border: 2px solid var(--color-input);
+    border-radius: 8px;
+    font-size: 1rem;
+    background: var(--color-background);
+    color: var(--color-foreground);
+    text-align: center;
+  }
+  
+  .prep-time-input:focus {
+    outline: none;
+    border-color: var(--color-ring);
+  }
+  
+  .prep-time-unit {
+    color: var(--color-muted-foreground);
+    font-size: 0.9rem;
+  }
 
   .ingredient-form {
     background: var(--color-card);
@@ -1007,20 +1179,165 @@
 
   .total-bar {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    flex-direction: column;
+    gap: 8px;
     padding: 20px;
     background: var(--color-card);
     border-radius: 16px;
     box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-    font-size: 1.1rem;
-    font-weight: 600;
     color: var(--color-foreground);
+  }
+
+  .total-breakdown {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .total-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.95rem;
+  }
+
+  .total-row.labor-row {
+    color: var(--color-muted-foreground);
+  }
+
+  .total-ingredients, .total-labor {
+    font-weight: 500;
+  }
+
+  .total-divider {
+    height: 1px;
+    background: var(--color-border);
+    margin: 6px 0;
+  }
+
+  .total-row.total-final {
+    font-size: 1.1rem;
+    font-weight: 700;
   }
 
   .total-amount {
     font-size: 1.5rem;
     color: var(--color-primary);
+    font-weight: 700;
+  }
+
+  /* Modal de Settings */
+  .modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 20px;
+    animation: fadeIn 0.2s ease;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  .modal-content {
+    background: var(--color-card);
+    border-radius: 20px;
+    padding: 24px;
+    width: 100%;
+    max-width: 400px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    animation: slideUp 0.3s ease;
+    color: var(--color-foreground);
+  }
+
+  @keyframes slideUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+  }
+
+  .modal-header h2 {
+    margin: 0;
+    font-size: 1.3rem;
+  }
+
+  .modal-close {
+    width: 36px;
+    height: 36px;
+    border: none;
+    background: var(--color-muted);
+    border-radius: 10px;
+    font-size: 1.3rem;
+    cursor: pointer;
+    color: var(--color-foreground);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .settings-section {
+    margin-bottom: 24px;
+  }
+
+  .settings-label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 10px;
+    font-size: 0.95rem;
+  }
+
+  .settings-input {
+    width: 100%;
+    padding: 14px 16px;
+    border: 2px solid var(--color-input);
+    border-radius: 12px;
+    font-size: 1rem;
+    background: var(--color-background);
+    color: var(--color-foreground);
+  }
+
+  .settings-input:focus {
+    outline: none;
+    border-color: var(--color-ring);
+  }
+
+  .settings-hint {
+    display: block;
+    margin-top: 8px;
+    color: var(--color-muted-foreground);
+    font-size: 0.8rem;
+  }
+
+  .settings-save-btn {
+    width: 100%;
+    padding: 14px;
+    background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
+    color: var(--color-primary-foreground);
+    border: none;
+    border-radius: 12px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
   }
 
   /* Recipes Screen */
