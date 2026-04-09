@@ -1,646 +1,186 @@
 <script>
-  import { onMount } from 'svelte';
-  import QuantityInput from './lib/QuantityInput.svelte';
-  import UnitSelect from './lib/UnitSelect.svelte';
-  import { getUnitByValue } from './lib/units.js';
-  import { calculateIngredientCost, getUnitCategory, calculateContainerCost } from './lib/priceCalculator.js';
+  import Header from './lib/components/Header.svelte';
+  import HomeScreen from './lib/screens/HomeScreen.svelte';
+  import CreateScreen from './lib/screens/CreateScreen.svelte';
+  import IngredientsScreen from './lib/screens/IngredientsScreen.svelte';
+  import RecipesScreen from './lib/screens/RecipesScreen.svelte';
+  import SettingsModal from './lib/components/SettingsModal.svelte';
+  import Toast from './lib/components/Toast.svelte';
 
-  // Estado de la aplicación
-  let currentScreen = $state('home'); // 'home', 'create', 'ingredients', 'recipes'
-  let recipes = $state([]);
-  /** @type {{id: string, name: string, prepTimeMinutes?: number, ingredients?: Array<any>, createdAt?: string} | null} */
-  let currentRecipe = $state(null);
-  
-  // Estado del modo oscuro
-  let isDarkMode = $state(false);
-  
-  // Estado global: userSettings (Svelte 5 Runes)
-  let userSettings = $state({ hourlyRate: 0 });
-  
-  // Effect para persistir userSettings en localStorage
-  $effect(() => {
-    try {
-      localStorage.setItem('chefmate-user-settings', JSON.stringify(userSettings));
-    } catch (e) {
-      // Silently fail in private browsing mode
-    }
+  // Composables
+  import { useNavigation } from './lib/composables/useNavigation.svelte.js';
+  import { useDarkMode } from './lib/composables/useDarkMode.svelte.js';
+  import { useUserSettings } from './lib/composables/useUserSettings.svelte.js';
+  import { useRecipes } from './lib/composables/useRecipes.svelte.js';
+  import { useToast } from './lib/composables/useToast.svelte.js';
+
+  // Inicializar composables
+  const navigation = useNavigation();
+  const darkMode = useDarkMode();
+  const userSettings = useUserSettings();
+  const recipesManager = useRecipes();
+  const toast = useToast();
+
+  // Inicializar navegación después de que todo esté listo
+  navigation.initialize();
+
+  // Estados derivados del composable
+  let currentScreen = $derived.by(() => {
+    return navigation.currentScreen;
   });
-  
+  let isDarkMode = $derived(darkMode.isDarkMode);
+  let userSettingsData = $derived(userSettings.userSettings);
+  let recipes = $derived(recipesManager.recipes);
+  let currentRecipe = $derived(recipesManager.currentRecipe);
+
   // Mostrar/ocultar modal de settings
   let showSettings = $state(false);
-  
+
   // Formularios
   let newRecipeName = $state('');
-  let newIngredient = $state({ 
-    name: '', 
-    quantity: '', 
-    unit: '', 
+  let newIngredient = $state({
+    name: '',
+    quantity: '',
+    unit: '',
     pricePerKgOrL: 0,
-    // New container fields
     containerQuantity: '',
     containerUnit: '',
     containerPrice: 0
   });
 
-  function getIngredientDisplayPrice(ingredient) {
-    // Check if ingredient has container data (new format)
-    if (ingredient.containerQuantity && ingredient.containerUnit && ingredient.containerPrice) {
-      // Calculate using container-based pricing
-      return calculateContainerCost(
-        ingredient.quantity,
-        ingredient.unit,
-        ingredient.containerQuantity,
-        ingredient.containerUnit,
-        ingredient.containerPrice
-      ).toFixed(2);
-    }
-    
-    // Legacy calculation for existing recipes without container data
-    const category = getUnitCategory(ingredient.unit);
-    if (category === 'piece') {
-      // For piece units, show direct price
-      return (parseFloat(ingredient.price) || parseFloat(ingredient.pricePerKgOrL) || 0).toFixed(2);
-    } else {
-      // For weight/volume, show calculated cost
-      const pricePerKgOrL = parseFloat(ingredient.pricePerKgOrL) || parseFloat(ingredient.price) || 0;
-      return calculateIngredientCost(ingredient, pricePerKgOrL).toFixed(2);
-    }
-  }
-  let priceLabel = $derived(getPriceLabel(newIngredient.unit));
-  
-  // Auto-fill container unit when recipe unit changes
-  $effect(() => {
-    if (newIngredient.unit && !newIngredient.containerUnit) {
-      newIngredient.containerUnit = newIngredient.unit;
-    } else if (!newIngredient.unit && newIngredient.containerUnit) {
-      // Clear container unit when recipe unit is cleared
-      newIngredient.containerUnit = '';
-    }
-  });
-  
-  // Helper to display container info
-  function getContainerDisplay(ingredient) {
-    if (!ingredient.containerQuantity || !ingredient.containerUnit) return '';
-    const unitLabel = getUnitByValue(ingredient.containerUnit)?.label || ingredient.containerUnit;
-    return ` (env: ${ingredient.containerQuantity} ${unitLabel})`;
-  }
+  // Cálculos reactivos
+  let recipeIngredients = $derived((currentRecipe && currentRecipe.ingredients) || []);
+  let totalIngredientsCost = $derived(recipesManager.getTotal(recipeIngredients));
+  let recipePrepTime = $derived((currentRecipe && currentRecipe.prepTimeMinutes) || 0);
+  let laborCost = $derived(
+    ((userSettingsData.hourlyRate || 0) * (recipePrepTime / 60)) || 0
+  );
+  let totalRecipeCost = $derived(totalIngredientsCost + laborCost);
 
-  function getPriceLabel(unit) {
-    const category = getUnitCategory(unit);
-    if (category === 'weight') {
-      return 'Precio por kg ($)';
-    } else if (category === 'volume') {
-      return 'Precio por L ($)';
-    } else {
-      return 'Precio ($)';
-    }
-  }
-
-  // Cargar recetas desde localStorage al iniciar
-  onMount(() => {
-    // Cargar preferencia de modo oscuro
-    try {
-      const savedDarkMode = localStorage.getItem('chefmate-dark-mode');
-      if (savedDarkMode === 'true') {
-        isDarkMode = true;
-        document.documentElement.classList.add('dark');
-      } else if (savedDarkMode === null) {
-        // Si no hay preferencia, usar la del sistema
-        if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-          isDarkMode = true;
-          document.documentElement.classList.add('dark');
-        }
-      }
-    } catch (e) {
-      // Si localStorage no está disponible, usar modo claro
-      console.warn('localStorage not available:', e);
-    }
-
-    // Escuchar cambios en la preferencia del sistema
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const handleSystemThemeChange = (e) => {
-      // Solo actualizar si el usuario no tiene preferencia guardada
-      try {
-        if (localStorage.getItem('chefmate-dark-mode') === null) {
-          isDarkMode = e.matches;
-          document.documentElement.classList.toggle('dark', isDarkMode);
-        }
-      } catch (err) {
-        // Ignorar errores si localStorage no está disponible
-      }
-    };
-    mediaQuery.addEventListener('change', handleSystemThemeChange);
-    
-    return () => {
-      mediaQuery.removeEventListener('change', handleSystemThemeChange);
-    };
-    
-    const saved = localStorage.getItem('chefmate-recipes');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        // Validate schema
-        if (Array.isArray(parsed)) {
-          recipes = parsed.filter(r => r && typeof r === 'object' && r.id && r.name);
-        } else {
-          recipes = [];
-        }
-      } catch (e) {
-        recipes = [];
-      }
-    }
-    
-    // Cargar userSettings desde localStorage
-    try {
-      const savedSettings = localStorage.getItem('chefmate-user-settings');
-      if (savedSettings) {
-        const parsed = JSON.parse(savedSettings);
-        userSettings.hourlyRate = parsed.hourlyRate || 0;
-      }
-    } catch (e) {
-      // Usar valores por defecto
-      userSettings.hourlyRate = 0;
-    }
-  });
-
-  // Guardar recetas en localStorage
-  function saveRecipes() {
-    localStorage.setItem('chefmate-recipes', JSON.stringify(recipes));
-  }
-
-  // Toggle modo oscuro
-  function toggleDarkMode() {
-    isDarkMode = !isDarkMode;
-    if (isDarkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-    try {
-      localStorage.setItem('chefmate-dark-mode', isDarkMode ? 'true' : 'false');
-    } catch (e) {
-      // Silently fail in private browsing mode
-    }
-  }
-
-  // Navegación
+  // Handlers de navegación
   function goTo(screen) {
-    currentScreen = screen;
+    navigation.goTo(screen);
   }
 
-  // Crear nueva receta
-  function createRecipe() {
-    if (!newRecipeName.trim()) return;
-    
-    const recipe = {
-      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      name: newRecipeName.trim(),
-      prepTimeMinutes: 0, // Tiempo de preparación en minutos
-      ingredients: [],
-      createdAt: new Date().toISOString()
-    };
-    
-    recipes = [...recipes, recipe];
-    currentRecipe = recipe;
-    newRecipeName = '';
-    saveRecipes();
-    
-    // Navegar automáticamente a ingredientes
-    goTo('ingredients');
+  function goBack() {
+    navigation.goHome();
   }
 
-  // Agregar ingrediente
-  function addIngredient() {
-    if (!newIngredient.name.trim() || !currentRecipe) return;
-    
-    const recipeIndex = recipes.findIndex(r => r.id === currentRecipe.id);
-    if (recipeIndex === -1) return;
-    
-    // Validate unit is a valid unit value
-    const validUnit = newIngredient.unit && getUnitByValue(newIngredient.unit);
-    
-    // Validate container fields: if any container field is filled, all should be filled
-    const hasContainerData = newIngredient.containerQuantity || newIngredient.containerUnit || newIngredient.containerPrice;
-    const hasPartialContainer = (newIngredient.containerQuantity && !newIngredient.containerUnit) ||
-                                 (newIngredient.containerQuantity && !newIngredient.containerPrice) ||
-                                 (newIngredient.containerUnit && !newIngredient.containerQuantity) ||
-                                 (newIngredient.containerPrice && !newIngredient.containerQuantity);
-    
-    if (hasPartialContainer) {
-      alert('Si ingresa datos del contenedor, complete todos los campos: cantidad, unidad y precio.');
-      return;
+  // Handlers de toggle
+  function toggleDarkMode() {
+    darkMode.toggleDarkMode();
+  }
+
+  function handleSaveSettings(settings) {
+    userSettings.updateSettings(settings);
+    toast.success('Ajustes guardados');
+  }
+
+  // Handlers de recetas
+  function handleCreateRecipe(name) {
+    const recipe = recipesManager.createRecipe(name);
+    if (recipe) {
+      newRecipeName = '';
+      navigation.goTo('ingredients');
+      toast.success(`Receta "${name}" creada`);
     }
-    
-    // Validate unit category compatibility if both recipe and container units are provided
-    if (validUnit && newIngredient.containerUnit) {
-      const recipeCategory = getUnitCategory(newIngredient.unit);
-      const containerCategory = getUnitCategory(newIngredient.containerUnit);
-      if (recipeCategory !== 'piece' && containerCategory !== 'piece' && recipeCategory !== containerCategory) {
-        alert(`Advertencia: La unidad de receta (${recipeCategory}) es diferente a la del contenedor (${containerCategory}). Esto puede generar cálculos incorrectos.`);
-      }
-    }
-    
-    const ingredient = {
-      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      name: newIngredient.name.trim(),
-      quantity: newIngredient.quantity.trim(),
-      unit: validUnit ? newIngredient.unit : '',
-      pricePerKgOrL: Math.max(0, parseFloat(String(newIngredient.pricePerKgOrL)) || 0),
-      // Legacy price field - keep for backward compatibility with existing recipes
-      price: Math.max(0, parseFloat(String(newIngredient.pricePerKgOrL)) || 0),
-      // New container fields
-      containerQuantity: newIngredient.containerQuantity ? newIngredient.containerQuantity.trim() : '',
-      containerUnit: newIngredient.containerUnit || '',
-      containerPrice: Math.max(0, parseFloat(String(newIngredient.containerPrice)) || 0)
-    };
-    
-    recipes[recipeIndex].ingredients = [
-      ...recipes[recipeIndex].ingredients,
-      ingredient
-    ];
-    currentRecipe = recipes[recipeIndex];
-    newIngredient = { 
-      name: '', 
-      quantity: '', 
-      unit: '', 
+  }
+
+  function handleAddIngredient() {
+    recipesManager.addIngredient(newIngredient);
+    // Reset ingredient form
+    newIngredient = {
+      name: '',
+      quantity: '',
+      unit: '',
       pricePerKgOrL: 0,
       containerQuantity: '',
       containerUnit: '',
       containerPrice: 0
     };
-    saveRecipes();
   }
 
-  // Eliminar ingrediente
-  function removeIngredient(ingredientId) {
-    if (!currentRecipe) return;
-    
-    const recipeIndex = recipes.findIndex(r => r.id === currentRecipe.id);
-    if (recipeIndex === -1) return;
-    
-    recipes[recipeIndex].ingredients = 
-      recipes[recipeIndex].ingredients.filter(i => i.id !== ingredientId);
-    currentRecipe = recipes[recipeIndex];
-    saveRecipes();
+  function handleRemoveIngredient(ingredientId) {
+    recipesManager.removeIngredient(ingredientId);
   }
 
-  // Eliminar receta
-  function deleteRecipe(recipeId) {
-    recipes = recipes.filter(r => r.id !== recipeId);
-    if (currentRecipe?.id === recipeId) {
-      currentRecipe = null;
-    }
-    saveRecipes();
+  function handleDeleteRecipe(recipeId) {
+    recipesManager.deleteRecipe(recipeId);
+    navigation.goTo('recipes');
+    toast.success('Receta eliminada');
   }
 
-  // Seleccionar receta para editar
-  function selectRecipe(recipe) {
-    currentRecipe = recipe;
-    goTo('ingredients');
+  function handleSelectRecipe(recipe) {
+    recipesManager.selectRecipe(recipe);
+    navigation.goTo('ingredients');
   }
 
-  // Calcular total de ingredientes
-  function getTotal(ingredients) {
-    return ingredients.reduce((sum, ing) => {
-      // Check for container data first (new format)
-      if (ing.containerQuantity && ing.containerUnit && ing.containerPrice) {
-        // Calculate using container-based pricing
-        const cost = calculateContainerCost(
-          ing.quantity,
-          ing.unit,
-          ing.containerQuantity,
-          ing.containerUnit,
-          ing.containerPrice
-        );
-        return sum + cost;
-      }
-      
-      // Legacy calculation for existing recipes without container data
-      const category = getUnitCategory(ing.unit);
-      
-      // For piece units (pza, und, doc), use price directly
-      // For weight/volume units, calculate cost using pricePerKgOrL
-      if (category === 'piece') {
-        // Use legacy price field or pricePerKgOrL as direct price for piece units
-        const price = parseFloat(ing.price) || parseFloat(ing.pricePerKgOrL) || 0;
-        return sum + price;
-      } else {
-        // For weight/volume: calculate cost dynamically
-        const pricePerKgOrL = parseFloat(ing.pricePerKgOrL) || parseFloat(ing.price) || 0;
-        const cost = calculateIngredientCost(ing, pricePerKgOrL);
-        return sum + cost;
-      }
-    }, 0);
+  function handlePrepTimeChange(recipeId, minutes) {
+    recipesManager.updatePrepTime(recipeId, minutes);
   }
-  
-  // Cálculos reactivos con $derived (Svelte 5 Runes)
-  // Total de ingredientes (maneja valores nulos)
-  let recipeIngredients = $derived((currentRecipe && currentRecipe.ingredients) || []);
-  let totalIngredientsCost = $derived(getTotal(recipeIngredients));
-  
-  // Costo de mano de obra: hourlyRate * (prepTimeMinutes / 60)
-  let recipePrepTime = $derived((currentRecipe && currentRecipe.prepTimeMinutes) || 0);
-  let laborCost = $derived(
-    ((userSettings.hourlyRate || 0) * (recipePrepTime / 60)) || 0
-  );
-  
-  // Costo total de la receta
-  let totalRecipeCost = $derived(totalIngredientsCost + laborCost);
 
-  // Formatear fecha
-  function formatDate(isoString) {
-    const date = new Date(isoString);
-    return date.toLocaleDateString('es-ES', { 
-      day: 'numeric', 
-      month: 'short' 
-    });
-  }
+  // Preparar datos de ingredientes para mostrar
+  let ingredientsWithPrice = $derived(recipeIngredients.map(ing => ({
+    ...ing,
+    _displayPrice: recipesManager.getIngredientDisplayPrice(ing)
+  })));
 </script>
 
 <main>
-  <!-- Header -->
-  <header>
-    <div class="header-content">
-      {#if currentScreen !== 'home'}
-        <button class="back-btn" onclick={() => goTo('home')}>
-          ←
-        </button>
-      {/if}
-      <h1>🍰 ChefMate</h1>
-      <div class="header-actions">
-        <button class="theme-toggle" onclick={toggleDarkMode} aria-label="Toggle dark mode">
-          {isDarkMode ? '☀️' : '🌙'}
-        </button>
-        <button class="settings-toggle" onclick={() => showSettings = true} aria-label="Settings">
-          ⚙️
-        </button>
-      </div>
-    </div>
-  </header>
+  <Header
+    showBackButton={currentScreen !== 'home'}
+    isDarkMode={isDarkMode}
+    onBack={goBack}
+    onToggleDarkMode={toggleDarkMode}
+    onOpenSettings={() => showSettings = true}
+  />
 
-  <!-- Pantalla: Home -->
   {#if currentScreen === 'home'}
-    <section class="screen home-screen">
-      <div class="hero">
-        <div class="hero-icon">👨‍🍳</div>
-        <h2>Tu bitácora de costos</h2>
-        <p>Crea recetas y controla cuánto gastas en ingredientes</p>
-      </div>
-      
-      <div class="action-cards">
-        <button class="action-card primary" onclick={() => goTo('create')}>
-          <span class="card-icon">➕</span>
-          <span class="card-text">
-            <strong>Nueva Receta</strong>
-            <small>Crear una receta desde cero</small>
-          </span>
-        </button>
-        
-        <button class="action-card" onclick={() => goTo('recipes')}>
-          <span class="card-icon">📖</span>
-          <span class="card-text">
-            <strong>Mis Recetas</strong>
-            <small>{recipes.length} recetas guardadas</small>
-          </span>
-        </button>
-      </div>
-    </section>
+    <HomeScreen
+      {recipes}
+      onNavigate={goTo}
+    />
   {/if}
 
-  <!-- Pantalla: Crear Receta -->
   {#if currentScreen === 'create'}
-    <section class="screen create-screen">
-      <div class="screen-header">
-        <h2>Nueva Receta</h2>
-        <p>¿Qué vas a preparar?</p>
-      </div>
-      
-      <form class="create-form" onsubmit={(e) => { e.preventDefault(); createRecipe(); }}>
-        <div class="input-group">
-          <label for="recipe-name">Nombre de la receta</label>
-          <input 
-            id="recipe-name"
-            type="text" 
-            bind:value={newRecipeName} 
-            placeholder="Ej: Torta de Chocolate"
-          />
-          {#if newRecipeName.trim() === '' && newRecipeName.length > 0}
-            <small style="color: #ff5252;">El nombre no puede estar vacío</small>
-          {/if}
-        </div>
-        
-        <button type="submit" class="submit-btn" class:disabled={!newRecipeName.trim()}>
-          Crear y agregar ingredientes →
-        </button>
-      </form>
-    </section>
+    <CreateScreen
+      bind:recipeName={newRecipeName}
+      onSubmit={handleCreateRecipe}
+    />
   {/if}
 
-  <!-- Pantalla: Ingredientes -->
   {#if currentScreen === 'ingredients' && currentRecipe}
-    <section class="screen ingredients-screen">
-      <div class="recipe-header">
-        <h2>🍪 {currentRecipe.name}</h2>
-        <button class="delete-recipe-btn" onclick={() => { if (confirm('¿Estás seguro de eliminar esta receta?')) { deleteRecipe(currentRecipe.id); goTo('recipes'); } }}>
-          🗑️
-        </button>
-      </div>
-      
-      <!-- Tiempo de preparación -->
-      <div class="prep-time-section">
-        <label class="prep-time-label" for="prep-time">⏱️ Tiempo de preparación:</label>
-        <div class="prep-time-input-group">
-          <input 
-            id="prep-time"
-            type="number"
-            bind:value={currentRecipe.prepTimeMinutes}
-            placeholder="0"
-            min="0"
-            class="prep-time-input"
-          />
-          <span class="prep-time-unit">minutos</span>
-        </div>
-      </div>
-      
-      <!-- Formulario agregar ingrediente -->
-      <form class="ingredient-form" onsubmit={(e) => { e.preventDefault(); addIngredient(); }}>
-        <div class="form-row form-row-main">
-          <div class="input-group qty-group">
-            <QuantityInput bind:value={newIngredient.quantity} label="Cant." />
-          </div>
-          <div class="input-group unit-group">
-            <UnitSelect bind:value={newIngredient.unit} label="Unidad" />
-          </div>
-          <div class="input-group name-group">
-            <label class="input-label" for="ingredient-name">Ingrediente</label>
-            <input 
-              id="ingredient-name"
-              type="text" 
-              bind:value={newIngredient.name} 
-              placeholder="Nombre"
-              class="name-input"
-            />
-          </div>
-        </div>
-        
-        <!-- Presentación en el Supermercado -->
-        <div class="form-row form-row-container">
-          <div class="input-group container-qty-group">
-            <QuantityInput bind:value={newIngredient.containerQuantity} label="Contenedor" showFractions={false} />
-          </div>
-          <div class="input-group container-unit-group">
-            <UnitSelect 
-              bind:value={newIngredient.containerUnit} 
-              label="Unidad"
-              defaultValue={newIngredient.unit}
-              onlyCommercial={true}
-            />
-          </div>
-          <div class="input-group container-price-group">
-            <label class="input-label" for="container-price">Precio ($)</label>
-            <input 
-              id="container-price"
-              type="number" 
-              bind:value={newIngredient.containerPrice} 
-              placeholder="0.00"
-              step="0.01"
-              min="0"
-              class="price-input"
-            />
-          </div>
-        </div>
-        
-        
-        <button type="submit" class="add-btn add-btn-full" class:disabled={!newIngredient.name.trim()}>
-          Agregar Ingrediente
-        </button>
-      </form>
-
-      <!-- Lista de ingredientes -->
-      <div class="ingredients-list">
-        {#each currentRecipe.ingredients as ingredient}
-          <div class="ingredient-item">
-            <div class="ingredient-info">
-              <span class="ingredient-name">{ingredient.name}</span>
-              <span class="ingredient-quantity">
-                {ingredient.quantity || '—'}{ingredient.unit ? ` ${getUnitByValue(ingredient.unit)?.label || ingredient.unit}` : ''}
-                {#if ingredient.containerQuantity && ingredient.containerUnit}
-                  <span class="container-info"> / {ingredient.containerQuantity} {getUnitByValue(ingredient.containerUnit)?.label || ingredient.containerUnit}</span>
-                {/if}
-              </span>
-            </div>
-            <div class="ingredient-right">
-              <span class="ingredient-price">${getIngredientDisplayPrice(ingredient)}</span>
-              <button class="remove-btn" onclick={() => removeIngredient(ingredient.id)}>×</button>
-            </div>
-          </div>
-        {/each}
-        
-        {#if currentRecipe.ingredients.length === 0}
-          <div class="empty-state">
-            <p>No hay ingredientes aún</p>
-            <small>Agrega los arriba ingredientes</small>
-          </div>
-        {/if}
-      </div>
-
-      <!-- Total con desglose -->
-      <div class="total-bar">
-        <div class="total-breakdown">
-          <div class="total-row">
-            <span>Costo Ingredientes:</span>
-            <span class="total-ingredients">${(totalIngredientsCost || 0).toFixed(2)}</span>
-          </div>
-          <div class="total-row labor-row">
-            <span>Mano de Obra:</span>
-            <span class="total-labor">${(laborCost || 0).toFixed(2)}</span>
-          </div>
-          <div class="total-divider"></div>
-          <div class="total-row total-final">
-            <span>Costo Total:</span>
-            <span class="total-amount">${(totalRecipeCost || 0).toFixed(2)}</span>
-          </div>
-        </div>
-      </div>
-    </section>
+    <IngredientsScreen
+      recipe={{...currentRecipe, ingredients: ingredientsWithPrice}}
+      bind:newIngredient
+      totalIngredientsCost={totalIngredientsCost}
+      laborCost={laborCost}
+      totalRecipeCost={totalRecipeCost}
+      onAddIngredient={handleAddIngredient}
+      onRemoveIngredient={handleRemoveIngredient}
+      onDeleteRecipe={handleDeleteRecipe}
+      onPrepTimeChange={handlePrepTimeChange}
+      {toast}
+    />
   {/if}
 
-  <!-- Pantalla: Mis Recetas -->
   {#if currentScreen === 'recipes'}
-    <section class="screen recipes-screen">
-      <div class="screen-header">
-        <h2>Mis Recetas</h2>
-        <p>{recipes.length} recetas guardadas</p>
-      </div>
-      
-      <div class="recipes-list">
-        {#each recipes as recipe (recipe.id)}
-          <button class="recipe-card" onclick={() => selectRecipe(recipe)}>
-            <div class="recipe-info">
-              <span class="recipe-name">{recipe.name}</span>
-              <span class="recipe-meta">
-                {recipe.ingredients.length} ingredientes • {formatDate(recipe.createdAt)}
-              </span>
-            </div>
-            <div class="recipe-total">
-              ${(getTotal(recipe.ingredients) || 0).toFixed(2)}
-            </div>
-          </button>
-        {/each}
-        
-        {#if recipes.length === 0}
-          <div class="empty-state">
-            <p>No hay recetas aún</p>
-            <button class="create-first-btn" onclick={() => goTo('create')}>
-              Crear mi primera receta
-            </button>
-          </div>
-        {/if}
-      </div>
-    </section>
+    <RecipesScreen
+      {recipes}
+      getTotal={recipesManager.getTotal}
+      onSelectRecipe={handleSelectRecipe}
+      onNavigate={goTo}
+    />
   {/if}
-  
-  <!-- Modal de Settings -->
-  {#if showSettings}
-    <div 
-      class="modal-overlay" 
-      onclick={() => showSettings = false}
-      onkeydown={(e) => e.key === 'Escape' && (showSettings = false)}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="settings-title"
-      tabindex="-1"
-    >
-      <div class="modal-content" role="presentation" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
-        <div class="modal-header">
-          <h2 id="settings-title">⚙️ Ajustes</h2>
-          <button class="modal-close" onclick={() => showSettings = false}>×</button>
-        </div>
-        
-        <div class="settings-section">
-          <label class="settings-label" for="hourly-rate">
-            Valor de tu hora de trabajo ($)
-          </label>
-          <input 
-            id="hourly-rate"
-            type="number"
-            bind:value={userSettings.hourlyRate}
-            placeholder="0.00"
-            step="0.01"
-            min="0"
-            class="settings-input"
-          />
-          <small class="settings-hint">
-            Se usa para calcular el costo de mano de obra en tus recetas
-          </small>
-        </div>
-        
-        <button class="settings-save-btn" onclick={() => showSettings = false}>
-          Guardar
-        </button>
-      </div>
-    </div>
-  {/if}
+
+  <SettingsModal
+    show={showSettings}
+    userSettings={userSettingsData}
+    onClose={() => showSettings = false}
+    onSave={handleSaveSettings}
+  />
+
+  <Toast toasts={toast.toasts} onDismiss={toast.dismiss} />
 </main>
 
 <style>
@@ -652,11 +192,11 @@
   :global(body) {
     margin: 0;
     padding: 0;
-    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-    background: linear-gradient(180deg, var(--color-primary) 0%, var(--color-secondary) 100%);
+    font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--color-background);
     min-height: 100vh;
     color: var(--color-foreground);
-    transition: background 0.3s ease;
+    transition: background var(--transition-base), color var(--transition-base);
   }
 
   main {
@@ -665,795 +205,6 @@
     min-height: 100vh;
     display: flex;
     flex-direction: column;
-  }
-
-  /* Header */
-  header {
-    background: var(--color-card);
-    backdrop-filter: blur(10px);
-    padding: 16px 20px;
-    position: sticky;
-    top: 0;
-    z-index: 100;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-  }
-
-  .header-content {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    max-width: 480px;
-    margin: 0 auto;
-  }
-
-  header h1 {
-    font-size: 1.4rem;
-    margin: 0;
-    color: var(--color-foreground);
-  }
-
-  .back-btn, .theme-toggle, .settings-toggle {
-    width: 40px;
-    height: 40px;
-    border: none;
-    background: var(--color-muted);
-    border-radius: 12px;
-    font-size: 1.2rem;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: transform 0.2s, background 0.2s;
-  }
-  
-  .header-actions {
-    display: flex;
-    gap: 8px;
-  }
-  
-  .settings-toggle {
-    font-size: 1.1rem;
-  }
-
-  .theme-toggle {
-    font-size: 1.1rem;
-  }
-
-  .theme-toggle:focus-visible {
-    outline: 2px solid var(--color-ring);
-    outline-offset: 2px;
-  }
-
-  .back-btn:active, .theme-toggle:active {
-    transform: scale(0.95);
-    background: var(--color-border);
-  }
-
-  /* Screens */
-  .screen {
-    flex: 1;
-    padding: 20px;
-    animation: slideIn 0.3s ease;
-  }
-
-  @keyframes slideIn {
-    from {
-      opacity: 0;
-      transform: translateX(20px);
-    }
-    to {
-      opacity: 1;
-      transform: translateX(0);
-    }
-  }
-
-  /* Home Screen */
-  .hero {
-    text-align: center;
-    padding: 40px 20px;
-    color: white;
-  }
-
-  .hero-icon {
-    font-size: 4rem;
-    margin-bottom: 16px;
-    animation: bounce 2s infinite;
-  }
-
-  @keyframes bounce {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-10px); }
-  }
-
-  .hero h2 {
-    font-size: 1.8rem;
-    margin: 0 0 8px 0;
-  }
-
-  .hero p {
-    opacity: 0.9;
-    font-size: 1rem;
-    margin: 0;
-  }
-
-  .action-cards {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .action-card {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 20px;
-    background: var(--color-card);
-    border: none;
-    border-radius: 16px;
-    cursor: pointer;
-    text-align: left;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    transition: transform 0.2s, box-shadow 0.2s;
-    color: var(--color-foreground);
-  }
-
-  .action-card:active {
-    transform: scale(0.98);
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-  }
-
-  .action-card.primary {
-    background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
-    color: var(--color-primary-foreground);
-  }
-
-  .card-icon {
-    font-size: 2rem;
-  }
-
-  .card-text {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .card-text strong {
-    font-size: 1.1rem;
-  }
-
-  .card-text small {
-    opacity: 0.8;
-    font-size: 0.85rem;
-  }
-
-  /* Create Screen */
-  .screen-header {
-    margin-bottom: 24px;
-  }
-
-  .screen-header h2 {
-    font-size: 1.5rem;
-    margin: 0 0 4px 0;
-    color: white;
-  }
-
-  .screen-header p {
-    color: rgba(255,255,255,0.8);
-    margin: 0;
-  }
-
-  .create-form {
-    background: var(--color-card);
-    padding: 24px;
-    border-radius: 16px;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-    color: var(--color-foreground);
-  }
-
-  .input-group {
-    margin-bottom: 20px;
-  }
-
-  .input-group label {
-    display: block;
-    font-weight: 600;
-    margin-bottom: 8px;
-    color: var(--color-foreground);
-  }
-
-  input {
-    width: 100%;
-    padding: 14px 16px;
-    border: 2px solid var(--color-input);
-    border-radius: 12px;
-    font-size: 1rem;
-    background: var(--color-background);
-    color: var(--color-foreground);
-    transition: border-color 0.2s;
-  }
-
-  input:focus {
-    outline: none;
-    border-color: var(--color-ring);
-  }
-
-  input::placeholder {
-    color: var(--color-muted-foreground);
-  }
-
-  .submit-btn {
-    width: 100%;
-    padding: 16px;
-    background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
-    color: var(--color-primary-foreground);
-    border: none;
-    border-radius: 12px;
-    font-size: 1rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: transform 0.2s, opacity 0.2s;
-  }
-
-  .submit-btn:active {
-    transform: scale(0.98);
-  }
-
-  .submit-btn.disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  /* Ingredients Screen */
-  .recipe-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 20px;
-  }
-
-  .recipe-header h2 {
-    font-size: 1.3rem;
-    color: white;
-    margin: 0;
-  }
-
-  .delete-recipe-btn {
-    width: 40px;
-    height: 40px;
-    border: none;
-    background: var(--color-destructive);
-    border-radius: 10px;
-    font-size: 1.1rem;
-    cursor: pointer;
-    color: var(--color-destructive-foreground);
-  }
-  
-  /* Tiempo de preparación */
-  .prep-time-section {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 20px;
-    padding: 12px 16px;
-    background: var(--color-card);
-    border-radius: 12px;
-    color: var(--color-foreground);
-  }
-  
-  .prep-time-label {
-    font-weight: 600;
-    font-size: 0.95rem;
-  }
-  
-  .prep-time-input-group {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  
-  .prep-time-input {
-    width: 80px;
-    padding: 8px 12px;
-    border: 2px solid var(--color-input);
-    border-radius: 8px;
-    font-size: 1rem;
-    background: var(--color-background);
-    color: var(--color-foreground);
-    text-align: center;
-  }
-  
-  .prep-time-input:focus {
-    outline: none;
-    border-color: var(--color-ring);
-  }
-  
-  .prep-time-unit {
-    color: var(--color-muted-foreground);
-    font-size: 0.9rem;
-  }
-
-  .ingredient-form {
-    background: var(--color-card);
-    padding: 16px;
-    border-radius: 16px;
-    margin-bottom: 20px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-  }
-
-  .form-row {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 10px;
-  }
-
-  .form-row:last-child {
-    margin-bottom: 0;
-  }
-
-  .form-row-main {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 8px;
-    align-items: start;
-  }
-  
-  /* Container section styles */
-  .form-row-container {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 8px;
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px dashed var(--color-border);
-  }
-  
-  .container-qty-group,
-  .container-unit-group,
-  .container-price-group {
-    min-width: 0;
-  }
-  
-  /* Full width submit button - use high specificity to override .add-btn */
-  .ingredient-form .add-btn-full, .add-btn-full {
-    display: block !important;
-    width: 100% !important;
-    height: 56px;
-    margin-top: 12px;
-    font-size: 1rem;
-    font-weight: 600;
-    background: var(--color-primary);
-    color: var(--color-primary-foreground);
-    border: none;
-    border-radius: var(--radius);
-    cursor: pointer;
-    transition: opacity 0.2s;
-  }
-  
-  .add-btn-full:hover:not(.disabled) {
-    opacity: 0.9;
-  }
-  
-  .add-btn-full.disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .input-group {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .input-label {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--color-muted-foreground);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-bottom: 4px;
-  }
-
-  .qty-group {
-    min-width: 0;
-  }
-
-  .unit-group {
-    min-width: 0;
-  }
-
-  .name-group {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .name-input, .price-input {
-    width: 100%;
-    height: 48px;
-    padding: 0 14px;
-    font-size: 1rem;
-    border: 2px solid var(--color-border);
-    border-radius: var(--radius);
-    background: var(--color-card);
-    color: var(--color-foreground);
-  }
-
-  .name-input:focus, .price-input:focus {
-    outline: none;
-    border-color: var(--color-ring);
-    box-shadow: 0 0 0 3px rgba(229, 123, 132, 0.25);
-  }
-
-  .add-btn {
-    width: 56px;
-    height: 48px;
-    background: var(--color-primary);
-    color: var(--color-primary-foreground);
-    border: none;
-    border-radius: 12px;
-    font-size: 1.8rem;
-    font-weight: bold;
-    cursor: pointer;
-    transition: background 0.2s, transform 0.2s;
-    flex-shrink: 0;
-  }
-
-  .add-btn:active {
-    transform: scale(0.95);
-    background: #5568d3;
-  }
-
-  .add-btn.disabled {
-    background: #ccc;
-    cursor: not-allowed;
-  }
-
-  .ingredients-list {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    margin-bottom: 20px;
-  }
-
-  .ingredient-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 14px 16px;
-    background: var(--color-card);
-    border-radius: 12px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-    animation: fadeIn 0.3s ease;
-  }
-
-  @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-
-  .ingredient-info {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .ingredient-name {
-    font-weight: 600;
-    color: var(--color-foreground);
-  }
-
-  .ingredient-quantity {
-    font-size: 0.85rem;
-    color: var(--color-muted-foreground);
-  }
-
-  .container-info {
-    font-size: 0.75rem;
-    color: var(--color-muted);
-  }
-
-  .ingredient-right {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .ingredient-price {
-    font-weight: 700;
-    color: var(--color-primary);
-    font-size: 1.1rem;
-  }
-
-  .remove-btn {
-    width: 32px;
-    height: 32px;
-    background: var(--color-destructive);
-    color: var(--color-destructive-foreground);
-    border: none;
-    border-radius: 8px;
-    font-size: 1.1rem;
-    cursor: pointer;
-    transition: background 0.2s;
-  }
-
-  .remove-btn:active {
-    background: #ff1744;
-  }
-
-  .total-bar {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 20px;
-    background: var(--color-card);
-    border-radius: 16px;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-    color: var(--color-foreground);
-  }
-
-  .total-breakdown {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .total-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 0.95rem;
-  }
-
-  .total-row.labor-row {
-    color: var(--color-muted-foreground);
-  }
-
-  .total-ingredients, .total-labor {
-    font-weight: 500;
-  }
-
-  .total-divider {
-    height: 1px;
-    background: var(--color-border);
-    margin: 6px 0;
-  }
-
-  .total-row.total-final {
-    font-size: 1.1rem;
-    font-weight: 700;
-  }
-
-  .total-amount {
-    font-size: 1.5rem;
-    color: var(--color-primary);
-    font-weight: 700;
-  }
-
-  /* Modal de Settings */
-  .modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-    padding: 20px;
-    animation: fadeIn 0.2s ease;
-  }
-
-  @keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
-
-  .modal-content {
-    background: var(--color-card);
-    border-radius: 20px;
-    padding: 24px;
-    width: 100%;
-    max-width: 400px;
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
-    animation: slideUp 0.3s ease;
-    color: var(--color-foreground);
-  }
-
-  @keyframes slideUp {
-    from {
-      opacity: 0;
-      transform: translateY(20px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  .modal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 24px;
-  }
-
-  .modal-header h2 {
-    margin: 0;
-    font-size: 1.3rem;
-  }
-
-  .modal-close {
-    width: 36px;
-    height: 36px;
-    border: none;
-    background: var(--color-muted);
-    border-radius: 10px;
-    font-size: 1.3rem;
-    cursor: pointer;
-    color: var(--color-foreground);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .settings-section {
-    margin-bottom: 24px;
-  }
-
-  .settings-label {
-    display: block;
-    font-weight: 600;
-    margin-bottom: 10px;
-    font-size: 0.95rem;
-  }
-
-  .settings-input {
-    width: 100%;
-    padding: 14px 16px;
-    border: 2px solid var(--color-input);
-    border-radius: 12px;
-    font-size: 1rem;
-    background: var(--color-background);
-    color: var(--color-foreground);
-  }
-
-  .settings-input:focus {
-    outline: none;
-    border-color: var(--color-ring);
-  }
-
-  .settings-hint {
-    display: block;
-    margin-top: 8px;
-    color: var(--color-muted-foreground);
-    font-size: 0.8rem;
-  }
-
-  .settings-save-btn {
-    width: 100%;
-    padding: 14px;
-    background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
-    color: var(--color-primary-foreground);
-    border: none;
-    border-radius: 12px;
-    font-size: 1rem;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  /* Recipes Screen */
-  .recipes-list {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .recipe-card {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 18px 20px;
-    background: var(--color-card);
-    border: none;
-    border-radius: 14px;
-    cursor: pointer;
-    text-align: left;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-    transition: transform 0.2s;
-  }
-
-  .recipe-card:active {
-    transform: scale(0.98);
-  }
-
-  .recipe-info {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .recipe-name {
-    font-weight: 600;
-    font-size: 1.05rem;
-    color: var(--color-foreground);
-  }
-
-  .recipe-meta {
-    font-size: 0.8rem;
-    color: var(--color-muted-foreground);
-  }
-
-  .recipe-total {
-    font-weight: 700;
-    font-size: 1.2rem;
-    color: var(--color-primary);
-  }
-
-  /* Empty State */
-  .empty-state {
-    text-align: center;
-    padding: 40px 20px;
-    color: white;
-  }
-
-  .empty-state p {
-    font-size: 1.1rem;
-    margin: 0 0 8px 0;
-    opacity: 0.9;
-  }
-
-  .empty-state small {
-    opacity: 0.7;
-  }
-
-  .create-first-btn {
-    margin-top: 16px;
-    padding: 14px 24px;
-    background: white;
-    color: #667eea;
-    border: none;
-    border-radius: 12px;
-    font-size: 1rem;
-    font-weight: 600;
-    cursor: pointer;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-  }
-
-  .create-first-btn:active {
-    transform: scale(0.98);
-  }
-
-  /* Mobile optimizations */
-  @media (max-width: 480px) {
-    .screen {
-      padding: 16px;
-    }
-
-    .hero {
-      padding: 30px 16px;
-    }
-
-    .hero-icon {
-      font-size: 3rem;
-    }
-
-    .action-card {
-      padding: 16px;
-    }
-
-    .form-row-main {
-      grid-template-columns: 1fr 1fr;
-    }
-
-    .name-group {
-      grid-column: 1 / -1;
-    }
-    
-    .form-row-container {
-      grid-template-columns: 1fr 1fr;
-    }
-    
-    .container-price-group {
-      grid-column: 1 / -1;
-    }
+    position: relative;
   }
 </style>
