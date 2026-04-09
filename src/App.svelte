@@ -13,6 +13,7 @@
   import { useUserSettings } from './lib/composables/useUserSettings.svelte.js';
   import { useRecipes } from './lib/composables/useRecipes.svelte.js';
   import { useToast } from './lib/composables/useToast.svelte.js';
+  import { usePurchases } from './lib/composables/usePurchases.svelte.js';
 
   // Inicializar composables
   const navigation = useNavigation();
@@ -20,6 +21,7 @@
   const userSettings = useUserSettings();
   const recipesManager = useRecipes();
   const toast = useToast();
+  const purchasesManager = usePurchases();
 
   // Inicializar navegación después de que todo esté listo
   navigation.initialize();
@@ -45,7 +47,9 @@
     pricePerKgOrL: 0,
     containerQuantity: '',
     containerUnit: '',
-    containerPrice: 0
+    containerPrice: 0,
+    brand: '',
+    store: ''
   });
 
   // Cálculos reactivos
@@ -88,6 +92,19 @@
 
   function handleAddIngredient() {
     recipesManager.addIngredient(newIngredient);
+
+    // Auto-save purchase if container data is complete
+    if (newIngredient.containerQuantity && newIngredient.containerUnit && newIngredient.containerPrice) {
+      purchasesManager.addPurchase({
+        productName: newIngredient.name,
+        containerQuantity: newIngredient.containerQuantity,
+        containerUnit: newIngredient.containerUnit,
+        containerPrice: newIngredient.containerPrice,
+        brand: newIngredient.brand || '',
+        store: newIngredient.store || '',
+      });
+    }
+
     // Reset ingredient form
     newIngredient = {
       name: '',
@@ -96,7 +113,9 @@
       pricePerKgOrL: 0,
       containerQuantity: '',
       containerUnit: '',
-      containerPrice: 0
+      containerPrice: 0,
+      brand: '',
+      store: ''
     };
   }
 
@@ -117,6 +136,20 @@
 
   function handlePrepTimeChange(recipeId, minutes) {
     recipesManager.updatePrepTime(recipeId, minutes);
+  }
+
+  // Handlers de compras
+  function handleSearchPurchases(query) {
+    return purchasesManager.searchByName(query);
+  }
+
+  function handleSelectPurchase(purchase) {
+    purchasesManager.updatePurchaseUsage(purchase.id);
+  }
+
+  function handleClearPurchases() {
+    purchasesManager.clearAll();
+    toast.success('Historial de compras eliminado');
   }
 
   // Preparar datos de ingredientes para mostrar
@@ -160,6 +193,8 @@
       onRemoveIngredient={handleRemoveIngredient}
       onDeleteRecipe={handleDeleteRecipe}
       onPrepTimeChange={handlePrepTimeChange}
+      onSearchPurchases={handleSearchPurchases}
+      onSelectPurchase={handleSelectPurchase}
       {toast}
     />
   {/if}
@@ -178,6 +213,8 @@
     userSettings={userSettingsData}
     onClose={() => showSettings = false}
     onSave={handleSaveSettings}
+    purchaseCount={purchasesManager.count}
+    onClearPurchases={handleClearPurchases}
   />
 
   <Toast toasts={toast.toasts} onDismiss={toast.dismiss} />

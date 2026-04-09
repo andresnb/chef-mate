@@ -24,6 +24,8 @@
     onRemoveIngredient = () => {},
     onDeleteRecipe = () => {},
     onPrepTimeChange = () => {},
+    onSearchPurchases = () => [],
+    onSelectPurchase = () => {},
     toast = null
   } = $props();
 
@@ -119,6 +121,8 @@
     <IngredientForm
       bind:ingredient={newIngredient}
       onSubmit={handleAddIngredient}
+      {onSearchPurchases}
+      {onSelectPurchase}
     />
 
     {#if validationError}

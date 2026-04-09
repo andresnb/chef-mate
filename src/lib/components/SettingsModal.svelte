@@ -1,20 +1,29 @@
 <script>
   import Modal from './Modal.svelte';
+  import ConfirmModal from './ConfirmModal.svelte';
 
   let {
     show = false,
     userSettings = { hourlyRate: 0 },
     onClose = () => {},
-    onSave = () => {}
+    onSave = () => {},
+    purchaseCount = 0,
+    onClearPurchases = () => {}
   } = $props();
 
   let localHourlyRate = $state(0);
+  let showClearConfirm = $state(false);
 
   $effect(() => {
     if (show) {
       localHourlyRate = userSettings.hourlyRate || 0;
     }
   });
+
+  function handleClearConfirm() {
+    showClearConfirm = false;
+    onClearPurchases();
+  }
 </script>
 
 <Modal {show} title="Ajustes" onClose={onClose}>
@@ -43,10 +52,47 @@
     </small>
   </div>
 
+  <!-- Purchases section -->
+  <div class="settings-section purchases-section">
+    <div class="purchases-header">
+      <span class="settings-label">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>
+          <line x1="3" y1="6" x2="21" y2="6"/>
+          <path d="M16 10a4 4 0 0 1-8 0"/>
+        </svg>
+        Compras guardadas
+      </span>
+      <span class="purchase-count">{purchaseCount}</span>
+    </div>
+    <small class="settings-hint">
+      Precios de productos que se sugieren automaticamente al agregar ingredientes
+    </small>
+    {#if purchaseCount > 0}
+      <button class="clear-btn" onclick={() => showClearConfirm = true}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="3 6 5 6 21 6"/>
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+        </svg>
+        Borrar historial de compras
+      </button>
+    {/if}
+  </div>
+
   <button class="save-btn" onclick={() => { onSave({ hourlyRate: localHourlyRate }); onClose(); }}>
     Guardar ajustes
   </button>
 </Modal>
+
+<ConfirmModal
+  show={showClearConfirm}
+  title="Borrar historial"
+  message="Se eliminaran todas las compras guardadas ({purchaseCount}). Los ingredientes en tus recetas no se veran afectados."
+  confirmText="Borrar todo"
+  destructive={true}
+  onConfirm={handleClearConfirm}
+  onCancel={() => showClearConfirm = false}
+/>
 
 <style>
   .settings-section {
@@ -58,9 +104,62 @@
     align-items: center;
     gap: 8px;
     font-weight: 600;
-    margin-bottom: 10px;
     font-size: 0.92rem;
     color: var(--color-foreground);
+  }
+
+  .purchases-section {
+    padding-top: 20px;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .purchases-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+
+  .purchase-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    height: 24px;
+    padding: 0 8px;
+    background: var(--color-secondary);
+    color: var(--color-secondary-foreground);
+    border-radius: 100px;
+    font-size: 0.75rem;
+    font-weight: 700;
+  }
+
+  .clear-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 12px 14px;
+    margin-top: 12px;
+    background: hsl(var(--destructive) / 0.08);
+    color: var(--color-destructive);
+    border: 1px solid hsl(var(--destructive) / 0.15);
+    border-radius: var(--radius);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+
+  @media (hover: hover) {
+    .clear-btn:hover {
+      background: hsl(var(--destructive) / 0.15);
+      border-color: hsl(var(--destructive) / 0.3);
+    }
+  }
+
+  .clear-btn:active {
+    transform: scale(0.98);
   }
 
   .input-wrapper {
@@ -97,7 +196,7 @@
 
   .settings-hint {
     display: block;
-    margin-top: 8px;
+    margin-top: 4px;
     color: var(--color-muted-foreground);
     font-size: 0.78rem;
     line-height: 1.4;

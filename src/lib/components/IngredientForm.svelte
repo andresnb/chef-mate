@@ -1,6 +1,7 @@
 <script>
   import QuantityInput from '../QuantityInput.svelte';
   import UnitSelect from '../UnitSelect.svelte';
+  import PurchaseSuggestions from './PurchaseSuggestions.svelte';
   import { getPriceLabel } from '../utils/format.js';
 
   let {
@@ -11,9 +12,13 @@
       pricePerKgOrL: 0,
       containerQuantity: '',
       containerUnit: '',
-      containerPrice: 0
+      containerPrice: 0,
+      brand: '',
+      store: ''
     }),
-    onSubmit = () => {}
+    onSubmit = () => {},
+    onSearchPurchases = () => [],
+    onSelectPurchase = () => {}
   } = $props();
 
   let priceLabel = $derived(getPriceLabel(ingredient.unit));
@@ -21,6 +26,57 @@
   let effectiveContainerUnit = $derived(
     ingredient.containerUnit || ingredient.unit
   );
+
+  // Purchase suggestions state
+  let showSuggestions = $state(false);
+  let suggestions = $state([]);
+  let searchTimer = $state(null);
+
+  // Progressive disclosure: show brand/store when container fields have values
+  let showBrandStore = $derived(
+    !!(ingredient.containerQuantity || ingredient.containerUnit || ingredient.containerPrice)
+  );
+
+  function handleNameInput() {
+    const query = ingredient.name;
+
+    if (searchTimer) clearTimeout(searchTimer);
+
+    if (!query || query.trim().length < 2) {
+      suggestions = [];
+      showSuggestions = false;
+      return;
+    }
+
+    searchTimer = setTimeout(() => {
+      const results = onSearchPurchases(query);
+      suggestions = results;
+      showSuggestions = results.length > 0;
+    }, 150);
+  }
+
+  function handleNameFocus() {
+    if (ingredient.name.trim().length >= 2) {
+      const results = onSearchPurchases(ingredient.name);
+      suggestions = results;
+      showSuggestions = results.length > 0;
+    }
+  }
+
+  function handleSelectSuggestion(purchase) {
+    ingredient.name = purchase.productName;
+    ingredient.containerQuantity = purchase.containerQuantity;
+    ingredient.containerUnit = purchase.containerUnit;
+    ingredient.containerPrice = purchase.containerPrice;
+    ingredient.brand = purchase.brand || '';
+    ingredient.store = purchase.store || '';
+    showSuggestions = false;
+    onSelectPurchase(purchase);
+  }
+
+  function handleDismissSuggestions() {
+    showSuggestions = false;
+  }
 
   function handleSubmit(e) {
     e.preventDefault();
@@ -46,9 +102,18 @@
           bind:value={ingredient.name}
           placeholder="Ej: Harina"
           class="text-input"
+          oninput={handleNameInput}
+          onfocus={handleNameFocus}
+          autocomplete="off"
         />
       </div>
     </div>
+    <PurchaseSuggestions
+      {suggestions}
+      visible={showSuggestions}
+      onSelect={handleSelectSuggestion}
+      onDismiss={handleDismissSuggestions}
+    />
   </div>
 
   <div class="form-divider"></div>
@@ -80,6 +145,33 @@
         />
       </div>
     </div>
+
+    {#if showBrandStore}
+      <div class="form-row form-row-brand-store">
+        <div class="input-group brand-group">
+          <label class="input-label" for="ingredient-brand">Marca (opcional)</label>
+          <input
+            id="ingredient-brand"
+            type="text"
+            bind:value={ingredient.brand}
+            placeholder="Ej: Zulka"
+            class="text-input"
+            autocomplete="off"
+          />
+        </div>
+        <div class="input-group store-group">
+          <label class="input-label" for="ingredient-store">Tienda (opcional)</label>
+          <input
+            id="ingredient-store"
+            type="text"
+            bind:value={ingredient.store}
+            placeholder="Ej: Walmart"
+            class="text-input"
+            autocomplete="off"
+          />
+        </div>
+      </div>
+    {/if}
   </div>
 
   <button type="submit" class="add-btn" class:disabled={!ingredient.name.trim()}>
@@ -139,9 +231,27 @@
   gap: 8px;
 }
 
+.form-row-brand-store {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .container-qty-group,
 .container-unit-group,
 .container-price-group {
+  min-width: 0;
+}
+
+.brand-group,
+.store-group {
   min-width: 0;
 }
 
