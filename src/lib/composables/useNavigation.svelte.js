@@ -35,6 +35,7 @@ export function useNavigation() {
     isInitialized = true;
   }
 
+  /** @param {string} screen */
   function goTo(screen) {
     currentScreen = screen;
   }
