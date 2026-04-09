@@ -8,6 +8,10 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#e57b84" />
+    <meta name="description" content="Calculadora de costos de recetas - ChefMate" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="ChefMate" />
     <title>ChefMate - Bitácora de Recetas</title>
     <script>
       // Aplicar tema oscuro antes del renderizado para evitar flash
@@ -31,5 +35,10 @@
   <body>
     <div id="app"></div>
     <script type="module" src="/src/main.js"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js');
+      }
+    </script>
   </body>
 </html>

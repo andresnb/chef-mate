@@ -1,76 +1,79 @@
-import { onMount } from "svelte";
+import {
+  subscribePurchases,
+  addPurchaseDoc,
+  updatePurchaseDoc,
+  deletePurchaseDoc,
+  deleteAllPurchases,
+} from "../firebase/firestore.js";
+import { serverTimestamp } from "firebase/firestore";
 
 /**
- * Composable para memoria de compras - guarda info de contenedor/precio
- * para sugerir al usuario cuando vuelva a usar el mismo ingrediente.
+ * Composable para memoria de compras.
+ * @param {{ user: { uid: string } | null }} authState
  */
-export function usePurchases() {
+export function usePurchases(authState) {
   let purchases = $state([]);
-  let isInitialized = $state(false);
+  /** @type {(() => void) | null} */
+  let unsubscribe = null;
 
   $effect(() => {
-    if (!isInitialized) return;
-    try {
-      localStorage.setItem("chefmate-purchases", JSON.stringify(purchases));
-    } catch (e) {
-      // Silently fail in private browsing mode
+    if (unsubscribe) {
+      unsubscribe();
+      unsubscribe = null;
     }
-  });
 
-  onMount(() => {
-    try {
-      const saved = localStorage.getItem("chefmate-purchases");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        purchases = Array.isArray(parsed)
-          ? parsed.filter((p) => p && p.id && p.productName)
-          : [];
-      }
-    } catch (e) {
+    if (authState?.user?.uid) {
+      const uid = authState.user.uid;
+      unsubscribe = subscribePurchases(uid, (/** @type {any[]} */ data) => {
+        purchases = data;
+      });
+    } else {
       purchases = [];
     }
-    isInitialized = true;
+
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+        unsubscribe = null;
+      }
+    };
   });
 
-  function generateId() {
-    return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-  }
-
+  /**
+   * @param {string} str
+   */
   function normalize(str) {
     return (str || "").trim().toLowerCase();
   }
 
   /**
    * Busca compras por nombre de producto (case-insensitive).
-   * Retorna [] si query tiene menos de 2 caracteres.
-   * Resultados ordenados por lastUsedAt descendente.
+   * @param {string} query
    */
   function searchByName(query) {
     const q = normalize(query);
     if (q.length < 2) return [];
 
     return purchases
-      .filter((p) => normalize(p.productName).includes(q))
-      .sort((a, b) => (b.lastUsedAt || "").localeCompare(a.lastUsedAt || ""));
+      .filter((/** @type {any} */ p) => normalize(p.productName).includes(q))
+      .sort((/** @type {any} */ a, /** @type {any} */ b) =>
+        (b.lastUsedAt || "").toString().localeCompare((a.lastUsedAt || "").toString()),
+      );
   }
 
   /**
-   * Agrega una compra. Si ya existe un duplicado exacto (mismos 6 campos),
-   * solo actualiza lastUsedAt.
+   * Agrega una compra. Deduplica si ya existe una identica.
+   * @param {{ productName: string, containerQuantity: string, containerUnit: string, containerPrice: number, brand?: string, store?: string }} data
    */
-  function addPurchase({
-    productName,
-    containerQuantity,
-    containerUnit,
-    containerPrice,
-    brand = "",
-    store = "",
-  }) {
-    const now = new Date().toISOString();
+  async function addPurchase(data) {
+    if (!authState?.user?.uid) return null;
+    const uid = authState.user.uid;
 
-    // Buscar duplicado exacto
+    const { productName, containerQuantity, containerUnit, containerPrice, brand = "", store = "" } = data;
+
+    // Check for exact duplicate in local state
     const existing = purchases.find(
-      (p) =>
+      (/** @type {any} */ p) =>
         normalize(p.productName) === normalize(productName) &&
         normalize(p.containerQuantity) === normalize(containerQuantity) &&
         normalize(p.containerUnit) === normalize(containerUnit) &&
@@ -80,59 +83,46 @@ export function usePurchases() {
     );
 
     if (existing) {
-      existing.lastUsedAt = now;
-      purchases = [...purchases]; // trigger reactivity
+      await updatePurchaseDoc(uid, existing.id, { lastUsedAt: serverTimestamp() });
       return existing;
     }
 
-    const newPurchase = {
-      id: generateId(),
-      productName: productName.trim(),
-      containerQuantity: String(containerQuantity).trim(),
-      containerUnit,
-      containerPrice: Number(containerPrice),
-      brand: (brand || "").trim(),
-      store: (store || "").trim(),
-      createdAt: now,
-      lastUsedAt: now,
-    };
-
-    purchases = [...purchases, newPurchase];
-    return newPurchase;
+    const id = await addPurchaseDoc(uid, data);
+    return { id, ...data };
   }
 
   /**
    * Actualiza lastUsedAt de una compra existente.
+   * @param {string} id
    */
-  function updatePurchaseUsage(id) {
-    const purchase = purchases.find((p) => p.id === id);
-    if (purchase) {
-      purchase.lastUsedAt = new Date().toISOString();
-      purchases = [...purchases]; // trigger reactivity
-    }
+  async function updatePurchaseUsage(id) {
+    if (!authState?.user?.uid) return;
+    await updatePurchaseDoc(authState.user.uid, id, { lastUsedAt: serverTimestamp() });
   }
 
   /**
    * Elimina una compra por ID.
+   * @param {string} id
    */
-  function removePurchase(id) {
-    purchases = purchases.filter((p) => p.id !== id);
+  async function removePurchase(id) {
+    if (!authState?.user?.uid) return;
+    await deletePurchaseDoc(authState.user.uid, id);
   }
 
   /**
    * Limpia todo el historial de compras.
    */
-  function clearAll() {
-    purchases = [];
+  async function clearAll() {
+    if (!authState?.user?.uid) return;
+    const ids = purchases.map((/** @type {any} */ p) => p.id);
+    if (ids.length > 0) {
+      await deleteAllPurchases(authState.user.uid, ids);
+    }
   }
 
   return {
-    get purchases() {
-      return purchases;
-    },
-    get count() {
-      return purchases.length;
-    },
+    get purchases() { return purchases; },
+    get count() { return purchases.length; },
     searchByName,
     addPurchase,
     updatePurchaseUsage,

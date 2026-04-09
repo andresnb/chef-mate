@@ -1,48 +1,56 @@
-import { onMount } from "svelte";
+import {
+  subscribeUserSettings,
+  updateUserSettings as updateSettingsFirestore,
+} from "../firebase/firestore.js";
 
 /**
- * Composable para gestión de configuración del usuario
+ * Composable para gestión de configuración del usuario.
+ * Usa Firestore cuando hay usuario autenticado.
+ * @param {{ user: { uid: string, email: string | null, displayName: string | null, photoURL: string | null } | null }} authState
  */
-export function useUserSettings() {
+export function useUserSettings(authState) {
   let userSettings = $state({ hourlyRate: 0 });
-  let isInitialized = $state(false);
+  /** @type {(() => void) | null} */
+  let unsubscribe = null;
 
-  // Effect para persistir en localStorage - solo después de inicialización
   $effect(() => {
-    if (!isInitialized) return;
-
-    try {
-      localStorage.setItem(
-        "chefmate-user-settings",
-        JSON.stringify(userSettings),
-      );
-    } catch (e) {
-      // Silently fail in private browsing mode
+    // Clean up previous listener
+    if (unsubscribe) {
+      unsubscribe();
+      unsubscribe = null;
     }
-  });
 
-  onMount(() => {
-    // Cargar userSettings desde localStorage primero
-    try {
-      const savedSettings = localStorage.getItem("chefmate-user-settings");
-      if (savedSettings) {
-        const parsed = JSON.parse(savedSettings);
-        userSettings.hourlyRate = parsed.hourlyRate || 0;
+    if (authState?.user?.uid) {
+      const uid = authState.user.uid;
+      unsubscribe = subscribeUserSettings(uid, (/** @type {any} */ data) => {
+        userSettings = { hourlyRate: data.hourlyRate || 0 };
+      });
+    } else {
+      userSettings = { hourlyRate: 0 };
+    }
+
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+        unsubscribe = null;
       }
-    } catch (e) {
-      userSettings.hourlyRate = 0;
-    }
-
-    // Marcar como inicializado después de cargar
-    isInitialized = true;
+    };
   });
 
+  /** @param {number} rate */
   function setHourlyRate(rate) {
     userSettings.hourlyRate = rate;
+    if (authState?.user?.uid) {
+      updateSettingsFirestore(authState.user.uid, { hourlyRate: rate });
+    }
   }
 
+  /** @param {Record<string, any>} newSettings */
   function updateSettings(newSettings) {
     userSettings = { ...userSettings, ...newSettings };
+    if (authState?.user?.uid) {
+      updateSettingsFirestore(authState.user.uid, newSettings);
+    }
   }
 
   return {

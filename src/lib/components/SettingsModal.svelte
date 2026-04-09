@@ -8,7 +8,9 @@
     onClose = () => {},
     onSave = () => {},
     purchaseCount = 0,
-    onClearPurchases = () => {}
+    onClearPurchases = () => {},
+    user = null,
+    onSignOut = () => {}
   } = $props();
 
   let localHourlyRate = $state(0);
@@ -82,6 +84,35 @@
   <button class="save-btn" onclick={() => { onSave({ hourlyRate: localHourlyRate }); onClose(); }}>
     Guardar ajustes
   </button>
+
+  <!-- Account section -->
+  {#if user}
+    <div class="settings-section account-section">
+      <div class="account-info">
+        <div class="account-avatar">
+          {#if user.photoURL}
+            <img src={user.photoURL} alt="" class="avatar-img" referrerpolicy="no-referrer" />
+          {:else}
+            <span class="avatar-initial">{(user.displayName || user.email || '?')[0].toUpperCase()}</span>
+          {/if}
+        </div>
+        <div class="account-details">
+          {#if user.displayName}
+            <span class="account-name">{user.displayName}</span>
+          {/if}
+          <span class="account-email">{user.email}</span>
+        </div>
+      </div>
+      <button class="signout-btn" onclick={() => onSignOut()}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+          <polyline points="16 17 21 12 16 7"/>
+          <line x1="21" y1="12" x2="9" y2="12"/>
+        </svg>
+        Cerrar sesion
+      </button>
+    </div>
+  {/if}
 </Modal>
 
 <ConfirmModal
@@ -224,6 +255,90 @@
   }
 
   .save-btn:active {
+    transform: scale(0.98);
+  }
+
+  /* Account section */
+  .account-section {
+    padding-top: 20px;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .account-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  .account-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--color-secondary);
+    color: var(--color-secondary-foreground);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+
+  .avatar-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .avatar-initial {
+    font-size: 1rem;
+    font-weight: 700;
+  }
+
+  .account-details {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+  }
+
+  .account-name {
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--color-foreground);
+  }
+
+  .account-email {
+    font-size: 0.78rem;
+    color: var(--color-muted-foreground);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .signout-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 12px 14px;
+    background: var(--color-muted);
+    color: var(--color-foreground);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+
+  @media (hover: hover) {
+    .signout-btn:hover {
+      background: var(--color-border);
+    }
+  }
+
+  .signout-btn:active {
     transform: scale(0.98);
   }
 </style>
