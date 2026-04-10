@@ -16,9 +16,22 @@
   }
 
   function handleInput() {
-    const allowed = /^[\d\s½¼¾⅓⅔⅛]*$/;
-    if (!allowed.test(value)) {
-      value = value.replace(/[^\d\s½¼¾⅓⅔⅛]/g, '');
+    // Convert comma to period for decimal support
+    value = value.replace(/,/g, '.');
+    // Remove invalid chars
+    value = value.replace(/[^\d\s.½¼¾⅓⅔⅛]/g, '');
+    // Allow only one dot
+    const parts = value.split('.');
+    if (parts.length > 2) {
+      value = parts[0] + '.' + parts.slice(1).join('');
+    }
+  }
+
+  function handleFocus(e) {
+    if (value === '0' || value === '0.0' || value === '0.00') {
+      value = '';
+    } else if (value) {
+      e.currentTarget.select();
     }
   }
 </script>
@@ -33,6 +46,7 @@
     class="qty-field"
     inputmode="decimal"
     oninput={handleInput}
+    onfocus={handleFocus}
   />
 
   {#if showFractions}

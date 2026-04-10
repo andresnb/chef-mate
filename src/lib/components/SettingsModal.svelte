@@ -41,12 +41,31 @@
       <span class="input-prefix">$</span>
       <input
         id="hourly-rate"
-        type="number"
-        bind:value={localHourlyRate}
+        type="text"
+        inputmode="decimal"
+        value={localHourlyRate || ''}
         placeholder="0.00"
-        step="0.01"
-        min="0"
         class="settings-input"
+        oninput={(e) => {
+          let val = e.currentTarget.value.replace(/,/g, '.').replace(/[^\d.]/g, '');
+          const parts = val.split('.');
+          if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
+          e.currentTarget.value = val;
+          localHourlyRate = parseFloat(val) || 0;
+        }}
+        onfocus={(e) => {
+          if (!localHourlyRate || localHourlyRate === 0) {
+            e.currentTarget.value = '';
+          } else {
+            e.currentTarget.select();
+          }
+        }}
+        onblur={(e) => {
+          if (e.currentTarget.value === '') {
+            e.currentTarget.value = '';
+            localHourlyRate = 0;
+          }
+        }}
       />
     </div>
     <small class="settings-hint">

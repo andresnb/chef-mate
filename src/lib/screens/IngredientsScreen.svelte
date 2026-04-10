@@ -106,12 +106,19 @@
       <div class="prep-time-input-group">
         <input
           id="prep-time"
-          type="number"
-          value={recipe.prepTimeMinutes || 0}
-          oninput={(e) => onPrepTimeChange(recipe.id, parseInt(e.currentTarget.value) || 0)}
+          type="text"
+          inputmode="numeric"
+          value={recipe.prepTimeMinutes || ''}
           placeholder="0"
-          min="0"
           class="prep-time-input"
+          oninput={(e) => {
+            let val = e.currentTarget.value.replace(/[^\d]/g, '');
+            e.currentTarget.value = val;
+            onPrepTimeChange(recipe.id, parseInt(val) || 0);
+          }}
+          onfocus={(e) => {
+            if (e.currentTarget.value === '0') e.currentTarget.value = '';
+          }}
         />
         <span class="prep-time-unit">min</span>
       </div>

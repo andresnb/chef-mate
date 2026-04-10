@@ -23,6 +23,32 @@
 
   let priceLabel = $derived(getPriceLabel(ingredient.unit));
 
+  function handlePriceInput(e) {
+    let val = e.currentTarget.value.replace(/,/g, '.');
+    // Remove non-numeric chars except dot
+    val = val.replace(/[^\d.]/g, '');
+    // Prevent multiple dots
+    const parts = val.split('.');
+    if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
+    e.currentTarget.value = val;
+    ingredient.containerPrice = parseFloat(val) || 0;
+  }
+
+  function handlePriceFocus(e) {
+    if (!ingredient.containerPrice || ingredient.containerPrice === 0) {
+      e.currentTarget.value = '';
+    } else {
+      e.currentTarget.select();
+    }
+  }
+
+  function handlePriceBlur(e) {
+    if (e.currentTarget.value === '') {
+      e.currentTarget.value = '0.00';
+      ingredient.containerPrice = 0;
+    }
+  }
+
   let effectiveContainerUnit = $derived(
     ingredient.containerUnit || ingredient.unit
   );
@@ -88,12 +114,6 @@
   <div class="form-section">
     <div class="section-label">Ingrediente</div>
     <div class="form-row form-row-main">
-      <div class="input-group qty-group">
-        <QuantityInput bind:value={ingredient.quantity} label="Cant." />
-      </div>
-      <div class="input-group unit-group">
-        <UnitSelect bind:value={ingredient.unit} label="Unidad" />
-      </div>
       <div class="input-group name-group">
         <label class="input-label" for="ingredient-name">Nombre</label>
         <input
@@ -106,6 +126,12 @@
           onfocus={handleNameFocus}
           autocomplete="off"
         />
+      </div>
+      <div class="input-group qty-group">
+        <QuantityInput bind:value={ingredient.quantity} label="Cant." />
+      </div>
+      <div class="input-group unit-group">
+        <UnitSelect bind:value={ingredient.unit} label="Unidad" />
       </div>
     </div>
     <PurchaseSuggestions
@@ -133,16 +159,21 @@
         />
       </div>
       <div class="input-group container-price-group">
-        <label class="input-label" for="container-price">Precio ($)</label>
-        <input
-          id="container-price"
-          type="number"
-          bind:value={ingredient.containerPrice}
-          placeholder="0.00"
-          step="0.01"
-          min="0"
-          class="text-input price-input"
-        />
+        <label class="input-label" for="container-price">Precio</label>
+        <div class="price-wrapper">
+          <span class="price-prefix">$</span>
+          <input
+            id="container-price"
+            type="text"
+            inputmode="decimal"
+            value={ingredient.containerPrice || ''}
+            placeholder="0.00"
+            class="text-input price-input"
+            oninput={handlePriceInput}
+            onfocus={handlePriceFocus}
+            onblur={handlePriceBlur}
+          />
+        </div>
       </div>
     </div>
 
@@ -223,6 +254,10 @@
   grid-template-columns: 1fr 1fr 1fr;
   gap: 8px;
   align-items: start;
+}
+
+.name-group {
+  grid-column: 1 / -1;
 }
 
 .form-row-container {
@@ -314,8 +349,27 @@
 }
 
 .name-group {
-  flex: 1;
   min-width: 0;
+}
+
+.price-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.price-prefix {
+  position: absolute;
+  left: 12px;
+  color: var(--color-muted-foreground);
+  font-weight: 600;
+  font-size: 1rem;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.price-input {
+  padding-left: 28px !important;
 }
 
 .text-input {
@@ -342,14 +396,6 @@
 }
 
 @media (max-width: 480px) {
-  .form-row-main {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .name-group {
-    grid-column: 1 / -1;
-  }
-
   .form-row-container {
     grid-template-columns: 1fr 1fr;
   }
