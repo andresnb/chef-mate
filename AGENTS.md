@@ -5,8 +5,10 @@
 ## A. Identidad Panda OS
 
 - Este repo es un **proyecto Panda OS**. Su `id` se estampa al inicio del bloque (ej. `id: carico`).
-- Tu **estado, roadmap y bitácora viven FUERA del repo**, en
-  `C:\Users\andre\PandaIT\Panda-OS\bitacoras\<id>.md`, y los maneja **el cierre de jornada** (CLAUDE §5).
+- Tu **estado, roadmap y bitácora viven FUERA del repo**, en `bitacoras/<id>.md` dentro de Panda OS,
+  y los maneja **el cierre de jornada** (CLAUDE §5). La ruta absoluta no va aquí a propósito: cada
+  máquina resuelve sus carpetas por área desde el 21-sep, y una ruta fija en un documento que se
+  estampa en diecisiete repos es una ruta que caduca en dieciséis. Da igual: **no la tocas**.
 - **Regla de carril (innegociable):** NO edites la bitácora ni `Roadmaps/`. No son tuyos.
   Tu único canal de "reporte" es el **commit**. *El Coder codea; el Líder cierra.*
 
@@ -18,6 +20,12 @@
 - Si el Coder detecta que el plan está mal o incompleto, **lo dice** (no lo cambia en silencio).
 
 ## B-bis. La Orden de Desarrollo — nada se construye sin ella
+
+**Lo primero, antes de tocar código.** Si Andrés te describe lo que quiere de este proyecto y no hay
+una Orden aprobada, **tu primer entregable es la Orden, no el código**. Pregunta primero:
+`GET http://localhost:4317/api/orden?id=<id>` (con la cabecera `x-panda-token`) te responde
+`puedeTrabajar` y, si es `false`, `porQueNo` — que distingue "no hay Orden" de "hay una y falta que
+Andrés la firme". Son cosas distintas y mandan a hacer cosas distintas.
 
 Andrés, 2026-09-23: *"NADA se despacha sin una orden de desarrollo. La orden de desarrollo es la
 que manda. No hago micro cambios sino un proceso con objetivo, y la agencia se encarga de
