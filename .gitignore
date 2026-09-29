@@ -28,4 +28,4 @@ dist-ssr
 
 # Tools
 .kilo/
-.claude/
+.claude/settings.local.json
